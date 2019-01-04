@@ -1,6 +1,6 @@
 package peer
 
-import "github.com/Oted/torrentz/lib/torrent"
+import "github.com/Oted/torrent-video-stream/lib/torrent"
 /*
 	0 - choke
 	1 - unchoke

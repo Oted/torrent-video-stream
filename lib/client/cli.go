@@ -3,6 +3,7 @@ package client
 import (
 	"crypto/sha1"
 	"encoding/binary"
+	"net"
 	"os"
 	"time"
 )
@@ -10,10 +11,14 @@ import (
 //client is just another name for our peer instance
 
 type Client struct {
-	Id [20]byte
+	Id     [20]byte
+	client *net.TCPListener
 }
 
 func New() (error, *Client) {
+
+	net.ListenTCP()
+
 	return nil, &Client{
 		Id: generateId(),
 	}

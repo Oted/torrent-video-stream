@@ -3,9 +3,9 @@ package main
 import (
 	"errors"
 	"fmt"
-	"github.com/Oted/torrentz/lib/client"
-	"github.com/Oted/torrentz/lib/torrent"
-	tracker2 "github.com/Oted/torrentz/lib/tracker"
+	"github.com/Oted/torrent-video-stream/lib/client"
+	"github.com/Oted/torrent-video-stream/lib/torrent"
+	"github.com/Oted/torrent-video-stream/lib/tracker"
 	"github.com/zeebo/bencode"
 	"io/ioutil"
 	"os"
@@ -25,11 +25,10 @@ func main() {
 	var torrent *torrent.Torrent
 	var err error
 
-	if input.Path != "" {
-		err, torrent = torrentFromPath(input.Path)
-		if err != nil {
-			panic(err)
-		}
+	//defaults to path for now
+	err, torrent = torrentFromPath(input.Path)
+	if err != nil {
+		panic(err)
 	}
 
 	err, client := client.New()
@@ -37,7 +36,7 @@ func main() {
 		panic(err)
 	}
 
-	err, tracker := tracker2.Create(torrent, client)
+	err, tracker := tracker.Create(torrent, client)
 	if err != nil {
 		panic(err)
 	}
