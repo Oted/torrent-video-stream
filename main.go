@@ -4,15 +4,19 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Oted/torrent-video-stream/lib/client"
+	"github.com/Oted/torrent-video-stream/lib/io"
 	"github.com/Oted/torrent-video-stream/lib/torrent"
 	"github.com/Oted/torrent-video-stream/lib/tracker"
 	"github.com/zeebo/bencode"
 	"io/ioutil"
 	"os"
+	"strconv"
 )
 
 type Input struct {
-	Path string
+	P2P_IP   string
+	P2P_PORT int
+	IO_PORT  int
 }
 
 func main() {
@@ -20,36 +24,60 @@ func main() {
 		panic(errors.New("no path"))
 	}
 
-	input := NewInput(os.Args)
-
-	var torrent *torrent.Torrent
-	var err error
-
-	//defaults to path for now
-	err, torrent = torrentFromPath(input.Path)
+	err, input := NewEnvs()
 	if err != nil {
 		panic(err)
 	}
 
-	err, client := client.New()
+	err = io.Listen(input.IO_PORT, func(message []byte) {
+		//defaults to path for now
+		err, torrent := torrentFromPath()
+		if err != nil {
+			panic(err)
+		}
+
+		err, client := client.New(input.P2P_IP, input.IO_PORT)
+		if err != nil {
+			panic(err)
+		}
+
+		err, tracker := tracker.Create(torrent, client)
+		if err != nil {
+			panic(err)
+		}
+
+		fmt.Println(tracker)
+	})
+
 	if err != nil {
 		panic(err)
 	}
-
-	err, tracker := tracker.Create(torrent, client)
-	if err != nil {
-		panic(err)
-	}
-
-	fmt.Printf("+%v\n", client)
-	fmt.Printf("+%v\n", torrent)
-	fmt.Printf("+%v\n", tracker)
 }
 
 //implement parser
-func NewInput(args []string) Input {
-	return Input{
-		Path: args[1],
+func NewEnvs() (error, *Input) {
+	ip := os.Getenv("P2P_IP")
+	port1 := os.Getenv("P2P_PORT")
+	port2 := os.Getenv("IO_PORT")
+
+	if ip == "" || port1 == "" || port2 == "" {
+		return errors.New("missing input envs"), nil
+	}
+
+	p2p, err := strconv.Atoi(port1)
+	if err != nil {
+		return err, nil
+	}
+
+	io, err := strconv.Atoi(port2)
+	if err != nil {
+		return err, nil
+	}
+
+	return nil, &Input{
+		P2P_IP:   ip,
+		P2P_PORT: p2p,
+		IO_PORT:  io,
 	}
 }
 

@@ -1,21 +1,40 @@
 package peer
 
-import "github.com/Oted/torrent-video-stream/lib/torrent"
-/*
-	0 - choke
-	1 - unchoke
-	2 - interested
-	3 - not interested
-	4 - have
-	5 - bitfield
-	6 - request
-	7 - piece
-	8 - cancel
-*/
+import (
+	"github.com/Oted/torrent-video-stream/lib/logger"
+	"net"
+)
 
-//a peer is created per connection established with another peer and has
+type Connection struct {
+	Id         string
+	Received   []*Request
+	Sent       []*Request
+	KeepAlives int
+	Conn       net.Conn
+}
 
+func New(id string, conn net.Conn) (error, *Connection) {
+	c := Connection{
+		Id:         id,
+		Received:   make([]*Request, 10),
+		Sent:       make([]*Request, 10),
+		KeepAlives: 0,
+		Conn:       conn,
+	}
 
-type Peer struct {
-	Pieces []*torrent.Piece
+	return nil, &c
+}
+
+func (c *Connection) Receive(data []byte) error {
+	logger.Log("got data " + string(data) + "from cli " + c.Id)
+	return nil
+}
+
+func (c *Connection) Send(data []byte) error {
+	logger.Log("sent data " + string(data) + "to cli " + c.Id)
+	return nil
+}
+
+func (c *Connection) keepAlive() {
+
 }
