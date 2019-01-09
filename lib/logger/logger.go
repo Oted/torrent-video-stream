@@ -6,5 +6,5 @@ import (
 )
 
 func Log(m string) {
-	fmt.Println(time.Now().Format(time.RFC822) + " : " + m)
+	fmt.Println(time.Now().Format(time.RFC3339) + " | " + m)
 }

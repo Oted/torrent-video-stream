@@ -34,5 +34,5 @@ port: <len=0003><id=9><listen-port>
  */
 
 func parse(data []byte) (error, *Request) {
-
+	return nil,nil
 }

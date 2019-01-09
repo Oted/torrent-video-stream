@@ -6,93 +6,102 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Oted/torrent-video-stream/lib/peer"
+	"github.com/Oted/torrent-video-stream/lib/torrent"
+	"github.com/Oted/torrent-video-stream/lib/tracker"
 	"net"
 	"os"
 	"time"
 )
 
-//client is just another name for our peer instance
-
 type Client struct {
-	Id       [20]byte
-	listener *net.Listener
-	Errors   chan error
-	Peers    map[string]*peer.Connection
+	Id          [20]byte
+	listener    net.Listener
+	peers       map[string]*peer.Peer
+	Errors      chan error
+	Tracker     tracker.Tracker
+	DataChannel chan []byte
 }
 
-func New(ip string, startPort int) (error, *Client) {
-	err, port := findAvailPort(startPort)
+func New(ip string, startPort int, torrent *torrent.Torrent) (error, *Client) {
+	err, listener := findAvailPort(ip, startPort)
 	if err != nil {
 		return err, nil
 	}
 
-	//One connection per torrent.
-	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ip, port))
+	err, tracker := tracker.Create(torrent)
 	if err != nil {
-		panic(err)
+		return err, nil
 	}
 
 	c := Client{
-		Id:       generateId(),
-		listener: &listener,
-		Peers:    make(map[string]*peer.Connection),
-		Errors:   make(chan error),
-	}
-
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			return err, nil
-		}
-
-		go c.handleRequest(conn)
+		Id:          generateId(),
+		Tracker:     tracker,
+		listener:    listener,
+		peers:       make(map[string]*peer.Peer),
+		Errors:      make(chan error),
+		DataChannel: make(chan []byte, torrent.Info.Files[torrent.Meta.VidIndex].Length),
 	}
 
 	return nil, &c
 }
 
-//loog over the first 100 ports
-func findAvailPort(start int) (error, int) {
-	for i := start; i <= start + 100; i++ {
-		conn, _ := net.DialTimeout("tcp", string(start), 20)
-		if conn != nil {
-			return nil, start
+func (c *Client) Download() error {
+	for {
+		conn, err := c.listener.Accept()
+		if err != nil {
+			return err
 		}
-	}
 
-	return errors.New("no port avail"), 0
+		data := make([]byte, 131072) //2^17?
+
+		len, err := conn.Read(data)
+		if err != nil {
+			return err
+		}
+
+		addr := conn.RemoteAddr().String()
+
+		err, peer := peer.New(addr, conn)
+		if err != nil {
+			return err
+		}
+
+		err = peer.Receive(data[0 : len-1])
+		if err != nil {
+			return err
+		}
+
+		c.AddPeer(addr, peer)
+	}
 }
 
-func (c *Client) handleRequest(conn net.Conn) error {
-	data := make([]byte, 1024)
-
-	_, err := conn.Read(data)
-	if err != nil {
-		return err
-	}
-
-	addr := conn.RemoteAddr().String()
-
-	err, peer := peer.New(addr, conn)
-	if err != nil {
-		return err
-	}
-
-	err = peer.Receive(data)
-	if err != nil {
-		return err
-	}
-
-	c.AddPeer(addr, peer)
-	return nil
-}
-
-func (c *Client) AddPeer(id string, p *peer.Connection) {
-	c.Peers[id] = p
+func (c *Client) AddPeer(id string, p *peer.Peer) {
+	c.peers[id] = p
 }
 
 func (c *Client) DeletePeer(id string) {
-	delete(c.Peers, id)
+	delete(c.peers, id)
+}
+
+func (c *Client) Destroy() {
+	c.listener.Close()
+
+	for _, p := range c.peers {
+		p.Destroy()
+	}
+}
+
+//over the first 100 ports
+func findAvailPort(ip string, start int) (error, net.Listener) {
+	for i := start; i <= start+100; i++ {
+		//One connection per torrent.
+		listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ip, i))
+		if err == nil {
+			return nil, listener
+		}
+	}
+
+	return errors.New("no port avail"), nil
 }
 
 func generateId() [20]byte {

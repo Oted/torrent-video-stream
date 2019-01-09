@@ -1,7 +1,6 @@
 package tracker
 
 import (
-	"github.com/Oted/torrent-video-stream/lib/client"
 	"github.com/Oted/torrent-video-stream/lib/torrent"
 	"net/http"
 )
@@ -32,9 +31,8 @@ import (
 
  */
 
-type instance struct {
+type Tracker struct {
 	torrent *torrent.Torrent
-	client  *client.Client
 	httpCli *http.Client
 }
 
@@ -51,16 +49,15 @@ type Info struct {
 	TrackerId  *string
 }
 
-func Create(t *torrent.Torrent, c *client.Client) (error, instance) {
+func Create(t *torrent.Torrent) (error, Tracker) {
 	cli := http.DefaultClient
 
-	return nil, instance{
+	return nil, Tracker{
 		torrent: t,
-		client:  c,
 		httpCli: cli,
 	}
 }
 
-//func (t *instance) Announce(event string, ) {
-//	http.NewRequest("GET")
+//func (t *Tracker) Announce(event string, ) {
+
 //}

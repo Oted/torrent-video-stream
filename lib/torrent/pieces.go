@@ -14,7 +14,7 @@ type Piece struct {
 	Announced    bool
 	AmChoked     bool //seed?
 	AmInterested bool //leech?
-	//Peers        []*network.Peer not sure what way the relationship goes
+	//peers        []*network.Peer not sure what way the relationship goes
 }
 type Pieces []*Piece
 

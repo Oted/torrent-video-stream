@@ -2,13 +2,13 @@ package main
 
 import (
 	"errors"
-	"fmt"
 	"github.com/Oted/torrent-video-stream/lib/client"
 	"github.com/Oted/torrent-video-stream/lib/io"
+	"github.com/Oted/torrent-video-stream/lib/logger"
 	"github.com/Oted/torrent-video-stream/lib/torrent"
-	"github.com/Oted/torrent-video-stream/lib/tracker"
 	"github.com/zeebo/bencode"
 	"io/ioutil"
+	"net"
 	"os"
 	"strconv"
 )
@@ -20,33 +20,52 @@ type Input struct {
 }
 
 func main() {
-	if len(os.Args) < 2 {
-		panic(errors.New("no path"))
-	}
-
 	err, input := NewEnvs()
 	if err != nil {
 		panic(err)
 	}
 
-	err = io.Listen(input.IO_PORT, func(message []byte) {
-		//defaults to path for now
-		err, torrent := torrentFromPath()
+	err = io.Listen(input.IO_PORT, func(message []byte, conn net.Conn) {
+		//TODO there will be request specific chunks maybe
+		logger.Log("recieved message " + string(message))
+		defer conn.Close()
+
+		err, torrent := torrentFromPath(string(message))
 		if err != nil {
-			panic(err)
+			conn.Write([]byte("\n" + err.Error()))
+			return
 		}
 
-		err, client := client.New(input.P2P_IP, input.IO_PORT)
+		err, client := client.New(input.P2P_IP, input.P2P_PORT, torrent)
 		if err != nil {
-			panic(err)
+			conn.Write([]byte("\n" + err.Error()))
+			return
 		}
 
-		err, tracker := tracker.Create(torrent, client)
-		if err != nil {
-			panic(err)
+		/*
+			order from here:
+			 - establish connection with tracker
+			 - gather peeer data
+			 - handshake with peers
+			 - request first chunk of mov
+			 - seed every bit after dl
+			 - open
+
+		 */
+
+		go client.Download()
+
+		//we are reading until the end of the stream
+		for data := range client.DataChannel {
+			conn.Write(data)
 		}
 
-		fmt.Println(tracker)
+		//if there is an error then end
+		for err := range client.Errors {
+			conn.Write([]byte("\n" + err.Error()))
+			client.Destroy()
+			return
+		}
 	})
 
 	if err != nil {
