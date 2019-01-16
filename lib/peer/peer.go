@@ -10,6 +10,7 @@ type Peer struct {
 	Received   []*Request
 	Sent       []*Request
 	KeepAlives int
+	Handshaked bool
 	conn       net.Conn
 }
 
@@ -20,6 +21,7 @@ func New(id string, conn net.Conn) (error, *Peer) {
 		Sent:       make([]*Request, 10),
 		KeepAlives: 0,
 		conn:       conn,
+		Handshaked: false,
 	}
 
 	return nil, &c
@@ -32,6 +34,19 @@ func (c *Peer) Receive(data []byte) error {
 
 func (c *Peer) Send(data []byte) error {
 	logger.Log("sent data " + string(data) + "to cli " + c.Id)
+
+	r := Request{}
+
+	c.Sent = append(c.Sent, &r)
+
+	return nil
+}
+
+//infohash,
+func (c *Peer) Handshake() error {
+	//c.Send()
+
+	c.Handshaked = true
 	return nil
 }
 

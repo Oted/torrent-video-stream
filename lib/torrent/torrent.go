@@ -3,7 +3,9 @@ package torrent
 import (
 	"crypto/sha1"
 	"errors"
+	"fmt"
 	"github.com/zeebo/bencode"
+	"net/url"
 )
 
 type Torrent struct {
@@ -37,6 +39,8 @@ func Create(data map[string]interface{}) (error, *Torrent) {
 			}
 
 			torrent.InfoHash = sha1.Sum(bytes)
+			infoEnc := url.QueryEscape(string(torrent.InfoHash[:20]))
+			fmt.Println(infoEnc)
 			torrent.Info = parseInfo(v)
 		case "announce":
 			torrent.Announce = v.(string)

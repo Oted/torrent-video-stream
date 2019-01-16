@@ -25,6 +25,11 @@ func main() {
 		panic(err)
 	}
 
+	err, ip := getOutboundIP()
+	if err != nil {
+		panic(err)
+	}
+
 	err = io.Listen(input.IO_PORT, func(message []byte, conn net.Conn) {
 		//TODO there will be request specific chunks maybe
 		logger.Log("recieved message " + string(message))
@@ -36,35 +41,26 @@ func main() {
 			return
 		}
 
-		err, client := client.New(input.P2P_IP, input.P2P_PORT, torrent)
+		err, client := client.New(ip, input.P2P_PORT, torrent)
 		if err != nil {
 			conn.Write([]byte("\n" + err.Error()))
 			return
 		}
 
-		/*
-			order from here:
-			 - establish connection with tracker
-			 - gather peeer data
-			 - handshake with peers
-			 - request first chunk of mov
-			 - seed every bit after dl
-			 - open
-
-		 */
-
 		go client.Download()
 
 		//we are reading until the end of the stream
-		for data := range client.DataChannel {
-			conn.Write(data)
-		}
+		go func() {
+			for data := range client.DataChannel {
+				//TODO what happens on done?
+				conn.Write(data)
+			}
+		}()
 
 		//if there is an error then end
 		for err := range client.Errors {
 			conn.Write([]byte("\n" + err.Error()))
 			client.Destroy()
-			return
 		}
 	})
 
@@ -119,4 +115,17 @@ func torrentFromPath(path string) (error, *torrent.Torrent) {
 	}
 
 	return nil, torrent
+}
+
+
+func getOutboundIP() (error, net.IP) {
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err != nil {
+		return err, nil
+	}
+	defer conn.Close()
+
+	localAddr := conn.LocalAddr().(*net.UDPAddr)
+
+	return nil, localAddr.IP
 }
