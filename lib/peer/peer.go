@@ -5,8 +5,15 @@ import (
 	"net"
 )
 
+type Request struct {
+	T    string
+	Data []byte
+}
+
 type Peer struct {
-	Id         string
+	Port       int16
+	Ip         string
+	Id         *string
 	Received   []*Request
 	Sent       []*Request
 	KeepAlives int
@@ -14,17 +21,23 @@ type Peer struct {
 	conn       net.Conn
 }
 
-func New(id string, conn net.Conn) (error, *Peer) {
+func New(ip string, port int16) (error, *Peer) {
 	c := Peer{
-		Id:         id,
+		Port:       port,
+		Ip:         ip,
+		Id:         nil,
 		Received:   make([]*Request, 10),
 		Sent:       make([]*Request, 10),
 		KeepAlives: 0,
-		conn:       conn,
+		conn:       nil,
 		Handshaked: false,
 	}
 
 	return nil, &c
+}
+
+func (c *Peer) Handshake() error {
+	return nil
 }
 
 func (c *Peer) Receive(data []byte) error {
@@ -39,14 +52,6 @@ func (c *Peer) Send(data []byte) error {
 
 	c.Sent = append(c.Sent, &r)
 
-	return nil
-}
-
-//infohash,
-func (c *Peer) Handshake() error {
-	//c.Send()
-
-	c.Handshaked = true
 	return nil
 }
 

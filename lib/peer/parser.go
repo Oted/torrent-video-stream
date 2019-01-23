@@ -1,11 +1,6 @@
 package peer
 
 
-type Request struct {
-	T    string
-	Data []byte
-}
-
 /*
 	handshake: <pstrlen><pstr><reserved><info_hash><peer_id>
 		pstrlen: string length of <pstr>, as a single raw byte

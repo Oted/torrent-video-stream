@@ -28,9 +28,11 @@ func parseInfo(i interface{}) (info Info) {
 				info.Pieces = parsePieces(val.Interface())
 			case "private":
 				//TODO
-			case "length":
+			case "length": //if its a single file
 				f := parseFile(reflect.ValueOf(i))
 				f.Length = reflect.ValueOf(val.Interface()).Int()
+				f.Start = 0
+				f.End = f.Length
 				info.Files = append(info.Files, f)
 			}
 		}

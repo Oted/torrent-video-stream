@@ -14,13 +14,13 @@ import (
 )
 
 type Client struct {
-	Ip          net.IP
-	Id          [20]byte
-	listener    net.Listener
-	peers       map[string]*peer.Peer
-	Errors      chan error
-	Tracker     tracker.Tracker
-	DataChannel chan []byte
+	Ip           net.IP
+	Id           [20]byte
+	listener     net.Listener
+	peers        map[string]*peer.Peer //[ip:port]Peer
+	Errors       chan error
+	Tracker      tracker.Tracker
+	DataChannel  chan []byte
 }
 
 func New(ip net.IP, startPort int, torrent *torrent.Torrent) (error, *Client) {
@@ -52,7 +52,8 @@ func New(ip net.IP, startPort int, torrent *torrent.Torrent) (error, *Client) {
 /*
 	order from here:
 	 - establish connection with tracker
-	 - gather peeer data
+	 - gather peer data
+	 - listen for connections
 	 - handshake with peers
 	 - request first chunk of mov
 	 - seed every bit after dl
@@ -60,7 +61,13 @@ func New(ip net.IP, startPort int, torrent *torrent.Torrent) (error, *Client) {
 
  */
 func (c *Client) Download() {
-	err := c.Tracker.Announce()
+	err, res := c.Tracker.Announce(nil)
+	if err != nil {
+		c.fatal(err)
+		return
+	}
+
+	err = c.establishPeers(*res)
 	if err != nil {
 		c.fatal(err)
 		return
@@ -71,6 +78,28 @@ func (c *Client) Download() {
 		c.fatal(err)
 		return
 	}
+
+	//we now have our peers and are listening, we can start handshake
+
+}
+
+func (c *Client) establishPeers(response tracker.Response) error {
+	for _, p := range response.Peers {
+		err, peer := peer.New(p.Ip, p.Port)
+		if err != nil {
+			return err
+		}
+
+		key := p.Ip + string(p.Port)
+
+		if c.peers[key] != nil {
+			continue
+		}
+
+		c.peers[key] = peer
+	}
+
+	return nil
 }
 
 func (c *Client) listen() error {
@@ -118,6 +147,8 @@ func (c *Client) Destroy() {
 	for _, p := range c.peers {
 		p.Destroy()
 	}
+
+	c.Tracker.Destroy()
 }
 
 func (c *Client) fatal(err error) {
@@ -126,16 +157,16 @@ func (c *Client) fatal(err error) {
 }
 
 //over the first 100 ports
-func findAvailPort(ip string, start int) (error, net.Listener, int) {
+func findAvailPort(ip string, start int) (error, net.Listener, int16) {
 	for i := start; i <= start+100; i++ {
 		//One connection per torrent.
 		listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ip, i))
 		if err == nil {
-			return nil, listener, i
+			return nil, listener, int16(i)
 		}
 	}
 
-	return errors.New("no port avail"), nil, -1
+	return errors.New("no port avail"), nil, int16(-1)
 }
 
 func generateId() [20]byte {

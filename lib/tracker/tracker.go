@@ -2,11 +2,10 @@ package tracker
 
 import (
 	"errors"
-	"fmt"
 	"github.com/Oted/torrent-video-stream/lib/torrent"
-	"io/ioutil"
-	"net/http"
-	"net/url"
+	"math/rand"
+	"net"
+	"strings"
 )
 
 /*
@@ -37,82 +36,89 @@ import (
 
 type Tracker struct {
 	torrent *torrent.Torrent
-	httpCli *http.Client
-	State
+	udpCli  *net.UDPConn
+
+	State    State
+	Replies  []*Response
+	Protocol string
+}
+
+type Response struct {
+	action        uint32
+	transactionId uint32
+	interval      uint32
+	leechers      uint32
+	seeers        uint32
+	Peers         []Peer
+}
+
+type Peer struct {
+	Ip   string
+	Port int16
 }
 
 type State struct {
-	InfoHash   string
-	PeerId     string
-	Ip         string
-	Port       string
-	Uploaded   int64
-	Downloaded int64
-	Left       int64
-	Event      string
-	NumWant    *string
-	Key        *string
-	TrackerId  *string
+	InfoHash     [20]byte
+	PeerId       [20]byte
+	Ip           string
+	Port         int16
+	Uploaded     int64
+	Downloaded   int64
+	Left         int64
+	Event        string
+	Key          int32
+	NumWant      *int32
+	TrackerId    *string
+	ConnectionId *uint64
 }
 
-func Create(t *torrent.Torrent, ip string, port int, peerId [20]byte) (error, Tracker) {
-	cli := http.DefaultClient
-
-	peerEnc := url.QueryEscape(string(peerId[:20]))
-	infoEnc := url.QueryEscape(string(t.InfoHash[:20]))
+func Create(t *torrent.Torrent, ip string, port int16, peerId [20]byte) (error, Tracker) {
+	protocol := strings.Split(t.Announce, ":")[0]
 
 	return nil, Tracker{
-		torrent: t,
-		httpCli: cli,
-		State: State{
-			InfoHash:   infoEnc,
-			PeerId:     peerEnc,
-			Ip:         ip,
-			Port:       fmt.Sprintf("%d", port),
-			Uploaded:   0,
-			Downloaded: 0,
-			Left:       t.Info.Files[t.Meta.VidIndex].Length,
-			Event:      "started",
-			NumWant:    nil,
-			Key:        nil,
-			TrackerId:  nil,
+		torrent:  t,
+		Protocol: protocol,
+		State: State{ //default state
+			InfoHash:     t.InfoHash,
+			PeerId:       peerId,
+			Ip:           ip,
+			Port:         port,
+			Uploaded:     0,
+			Downloaded:   0,
+			Left:         t.Info.Files[t.Meta.VidIndex].Length,
+			Event:        "started",
+			NumWant:      nil,
+			Key:          0,
+			TrackerId:    nil,
+			ConnectionId: nil,
 		},
 	}
 }
 
-func (t *Tracker) Announce() error {
-	req, err := http.NewRequest("GET", t.torrent.Announce, nil)
-	if err != nil {
-		return err
+func (t *Tracker) Announce(s *State) (error, *Response) {
+	if s != nil {
+		t.State = *s
 	}
 
-	q := req.URL.Query()
-	q.Add("info_hash", t.State.InfoHash)
-	q.Add("peer_id", t.State.PeerId)
-	q.Add("ip", t.State.Ip)
-	q.Add("port", t.State.Port)
-	q.Add("downloaded", fmt.Sprintf("%d", t.State.Downloaded))
-	q.Add("uploaded", fmt.Sprintf("%d", t.State.Uploaded))
-	q.Add("left", fmt.Sprintf("%d", t.State.Left))
-
-	req.URL.RawQuery = q.Encode()
-
-	fmt.Println(req.URL.RawQuery)
-	res, err := t.httpCli.Do(req)
-	if err != nil {
-		return err
+	switch t.Protocol {
+	case "http":
+		return t.announceHttp(t.torrent.Announce)
+	case "https":
+		return t.announceHttp(t.torrent.Announce)
+	case "udp":
+		url := strings.Replace(strings.Replace(t.torrent.Announce, "udp://", "", 1), "/announce", "", 1)
+		return t.announceUDP(url)
 	}
 
-	body, err := ioutil.ReadAll(res.Body)
-	if err != nil {
-		return err
+	return errors.New("unsupported protocol " + t.Protocol), nil
+}
+
+func (t *Tracker) Destroy() {
+	if t.udpCli != nil {
+		t.udpCli.Close()
 	}
+}
 
-	fmt.Println(string(body))
-
-	if res.StatusCode != 200 {
-		return errors.New(fmt.Sprintf("%s : %d", "invalid statuscode from tracker", res.StatusCode))
-	}
-
-	return nil
+func newTransactionId() int32 {
+	return rand.Int31()
 }

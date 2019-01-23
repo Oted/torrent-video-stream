@@ -46,6 +46,9 @@ func parseFile(mapVal reflect.Value) *File {
 		case "path":
 			i := mapVal.MapIndex(k).Interface()
 			file.Path = parseFilePath(i)
+		case "name" :
+			i := mapVal.MapIndex(k).Interface()
+			file.Path = []string{reflect.ValueOf(i).String()}
 		case "length":
 			file.Length = mapVal.MapIndex(k).Interface().(int64)
 		case "md5sum":
@@ -82,6 +85,10 @@ func (f Files) hasVideo() (bool, int) {
 		}
 
 		if strings.Contains(file.Path[len(file.Path)-1], ".mp4") {
+			return true, i
+		}
+
+		if strings.Contains(file.Path[len(file.Path)-1], ".avi") {
 			return true, i
 		}
 	}
