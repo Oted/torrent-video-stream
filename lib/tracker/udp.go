@@ -84,7 +84,7 @@ func (t *Tracker) announceUDP(url string) (error, *Response) {
 
 		peers = append(peers, Peer{
 			Ip: fmt.Sprintf("%d.%d.%d.%d",byte(ip>>24), byte(ip>>16), byte(ip>>8), byte(ip)),
-			Port: int16(port),
+			Port: port,
 		})
 
 		n += 6

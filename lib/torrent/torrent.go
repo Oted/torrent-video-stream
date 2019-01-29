@@ -59,6 +59,25 @@ func Create(data map[string]interface{}) (error, *Torrent) {
 	return nil, &torrent
 }
 
+func (t *Torrent) SelectVideoPieces() (err error, pi []*Piece) {
+	file := t.SelectVideoFile()
+	filePos := int64(0)
+
+	for _, p := range t.Info.Pieces {
+		if filePos >= file.Start && filePos <= file.End {
+			pi = append(pi, p)
+		}
+
+		filePos += t.Info.PieceLength
+	}
+
+	return
+}
+
+func (t *Torrent) SelectVideoFile() (*File) {
+	return t.Info.Files[t.Meta.VidIndex]
+}
+
 func meta(t *Torrent) error {
 	t.Meta.Downloaded = 0
 	t.Meta.Uploaded = 0

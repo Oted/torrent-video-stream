@@ -54,7 +54,7 @@ type Response struct {
 
 type Peer struct {
 	Ip   string
-	Port int16
+	Port uint16
 }
 
 type State struct {

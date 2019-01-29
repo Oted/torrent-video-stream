@@ -32,6 +32,7 @@ func main() {
 
 	err = io.Listen(input.IO_PORT, func(message []byte, conn net.Conn) {
 		//TODO there will be request specific chunks maybe
+
 		logger.Log("recieved message " + string(message))
 		defer conn.Close()
 
@@ -47,7 +48,8 @@ func main() {
 			return
 		}
 
-		go client.Download()
+		//this starts the download and writes to its channels
+		go client.Start()
 
 		//we are reading until the end of the stream
 		go func() {

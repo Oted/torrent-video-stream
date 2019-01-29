@@ -14,7 +14,7 @@ type Piece struct {
 	Announced    bool
 	AmChoked     bool //seed?
 	AmInterested bool //leech?
-	//peers        []*network.Peer not sure what way the relationship goes
+	Have         bool
 }
 type Pieces []*Piece
 
@@ -35,6 +35,7 @@ func parsePieces(i interface{}) (pi Pieces) {
 			Announced:    false,
 			AmChoked:     true,
 			AmInterested: false,
+			Have:         false,
 		}
 
 		pi = append(pi, &p)

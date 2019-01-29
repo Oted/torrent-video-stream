@@ -1,7 +1,11 @@
-package peer
-
+package router
 
 /*
+
+
+func parse(data []byte) (error, *Request) {
+	return nil,nil
+}
 	handshake: <pstrlen><pstr><reserved><info_hash><peer_id>
 		pstrlen: string length of <pstr>, as a single raw byte
 		pstr: string identifier of the protocol
@@ -26,7 +30,3 @@ package peer
 	cancel: <len=0013><id=8><index><begin><length>
 	port: <len=0003><id=9><listen-port>
  */
-
-func parse(data []byte) (error, *Request) {
-	return nil,nil
-}
