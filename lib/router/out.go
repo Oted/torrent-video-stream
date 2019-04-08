@@ -1,9 +1,14 @@
 package router
 
-import "net"
+import (
+	"github.com/Oted/torrent-video-stream/lib/peer"
+	"net"
+)
 
-func Out(conn net.Conn, data []byte) error {
+func Out2(conn net.Conn, data []byte) error {
 	return nil
 }
 
-
+func Out1(peer peer.Peer, t int, msg []byte) error {
+	return nil
+}

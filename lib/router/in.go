@@ -27,5 +27,3 @@ func In(peer peer.Peer, data []byte) error {
 
 	return nil
 }
-
-

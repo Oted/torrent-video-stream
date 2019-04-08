@@ -99,6 +99,18 @@ func (c *Client) StartDownload() error {
 					return
 				}
 
+				//if the previous piece is not finished, must wait
+				if piece.Index > 0 && !c.finished[piece.Index - 1] {
+					for {
+						if c.finished[piece.Index - 1] {
+							c.Results <- result{
+								piece: piece,
+								bytes: res,
+							}
+						}
+					}
+				}
+
 				c.Results <- result{
 					piece: piece,
 					bytes: res,
@@ -131,22 +143,12 @@ func (c *Client) Read(p []byte) (n int, err error) {
 			return 0, io.EOF
 		}
 
-		//if the previous piece is not finishid, must wait
-		if result.piece.Index > 0 && !c.finished[result.piece.Index - 1] {
-			return func() (n int, err error) {
-				for {
-					
-
-					return p, nil
-				}
-			}()
-		}
-
 		//this has to convert each pieces local byte slice to the global indexed slice
 		for i, b := range result.bytes {
 			p[i] = b
 		}
 
+		c.finished[result.piece.Index] = true
 		return len(result.bytes), nil
 	}
 }
