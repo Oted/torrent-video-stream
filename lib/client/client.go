@@ -109,12 +109,13 @@ func (c *Client) StartDownload() error {
 							}
 						}
 					}
+				} else {
+					c.Results <- result{
+						piece: piece,
+						bytes: res,
+					}
 				}
 
-				c.Results <- result{
-					piece: piece,
-					bytes: res,
-				}
 			}
 		}()
 	}
