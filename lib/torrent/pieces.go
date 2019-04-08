@@ -15,7 +15,10 @@ type Piece struct {
 	AmChoked     bool //seed?
 	AmInterested bool //leech?
 	Have         bool
+	Data 		 []byte
+	Size 		 int64
 }
+
 type Pieces []*Piece
 
 func parsePieces(i interface{}) (pi Pieces) {

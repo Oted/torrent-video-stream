@@ -1,42 +1,48 @@
 package client
 
 import (
-	"crypto/sha1"
-	"encoding/binary"
+	"bytes"
 	"errors"
 	"fmt"
-	"github.com/Oted/torrent-video-stream/lib/download"
 	"github.com/Oted/torrent-video-stream/lib/logger"
 	"github.com/Oted/torrent-video-stream/lib/peer"
 	"github.com/Oted/torrent-video-stream/lib/router"
 	"github.com/Oted/torrent-video-stream/lib/torrent"
 	"github.com/Oted/torrent-video-stream/lib/tracker"
+	"io"
 	"net"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
+//if piece empty or null then done
+type result struct {
+	piece *torrent.Piece
+	bytes []byte
+}
+
 type Client struct {
-	Torrent     *torrent.Torrent
-	MaxPeers    int
-	Ip          net.IP
-	Id          [20]byte
-	listener    net.Listener
-	Peers       map[string]*peer.Peer //[ip:port]Peer
-	Errors      chan error
-	Tracker     tracker.Tracker
-	DataChannel chan []byte
-	Jobs        chan job
-	sync.WaitGroup
+	Torrent    *torrent.Torrent
+	MaxPeers   int
+	Ip         net.IP
+	Id         [20]byte
+	listener   net.Listener
+	Peers      map[string]*peer.Peer //[ip:port]Peer
+	Errors     chan error
+	Tracker    tracker.Tracker
+	Results    chan result
+	Jobs       chan *torrent.Piece
+	done       bool
+	wg         sync.WaitGroup
+	seek       int64
+	finished   []bool
+	waitBuffer *bytes.Buffer
 }
 
-type job struct {
-}
+const workers = 1
 
-func New(ip net.IP, startPort int, torrent *torrent.Torrent) (error, *Client) {
+func New(ip net.IP, startPort int, t *torrent.Torrent) (error, *Client) {
 	err, listener, port := findAvailPort(ip.String(), startPort)
 	if err != nil {
 		return err, nil
@@ -44,56 +50,120 @@ func New(ip net.IP, startPort int, torrent *torrent.Torrent) (error, *Client) {
 
 	id := generateId()
 
-	err, tracker := tracker.Create(torrent, ip.String(), port, id)
+	err, tracker := tracker.Create(t, ip.String(), port, id)
 	if err != nil {
 		return err, nil
 	}
 
 	c := Client{
-		Torrent:     torrent,
-		MaxPeers:    10,
-		Ip:          ip,
-		Id:          id,
-		Tracker:     tracker,
-		listener:    listener,
-		Peers:       make(map[string]*peer.Peer),
-		Errors:      make(chan error, 1),
-		Jobs:        make(chan job, 100),
-		DataChannel: make(chan []byte, torrent.SelectVideoFile().Length),
+		Torrent:    t,
+		MaxPeers:   10,
+		Ip:         ip,
+		Id:         id,
+		Tracker:    tracker,
+		listener:   listener,
+		Peers:      make(map[string]*peer.Peer),
+		Errors:     make(chan error, 1),
+		Jobs:       make(chan *torrent.Piece, len(t.SelectPieces())),
+		Results:    make(chan result, len(t.SelectPieces())),
+		done:       false,
+		seek:       0,
+		finished:   make([]bool, len(t.SelectPieces())),
+		waitBuffer: bytes.NewBuffer(nil),
 	}
 
 	return nil, &c
 }
 
-func (c *Client) Start() {
+func (c *Client) StartDownload() error {
 	go c.listen()
 
 	err, res := c.Tracker.Announce(nil)
 	if err != nil {
-		c.fatal(err)
-		return
+		return err
 	}
 
 	err = c.addPeers(*res)
 	if err != nil {
-		c.fatal(err)
-		return
+		return err
 	}
 
-	err, targetPieces := c.Torrent.SelectVideoPieces()
-	if err != nil {
-		c.fatal(err)
-		return
+	//start the workers, depending on how many, that decides the amount of concurrent pieces
+	for w := 1; w <= workers; w++ {
+		go func() {
+			for piece := range c.Jobs {
+				err, res := c.getPiece(piece)
+
+				if err != nil {
+					c.fatal(err)
+					return
+				}
+
+				c.Results <- result{
+					piece: piece,
+					bytes: res,
+				}
+			}
+		}()
 	}
+
+	targetPieces := c.Torrent.SelectPieces()
 
 	for _, p := range targetPieces {
-		go download.Download(p)
+		c.Jobs <- p
+	}
+
+	close(c.Jobs)
+
+	return nil
+}
+
+func (c *Client) Read(p []byte) (n int, err error) {
+	if c.done {
+		return 0, io.EOF
+	}
+
+	//wait for results here
+	for {
+		result := <-c.Results
+
+		if result.piece == nil {
+			return 0, io.EOF
+		}
+
+		//if the previous piece is not finishid, must wait
+		if result.piece.Index > 0 && !c.finished[result.piece.Index - 1] {
+			return func() (n int, err error) {
+				for {
+					
+
+					return p, nil
+				}
+			}()
+		}
+
+		//this has to convert each pieces local byte slice to the global indexed slice
+		for i, b := range result.bytes {
+			p[i] = b
+		}
+
+		return len(result.bytes), nil
 	}
 }
 
-func (c *Client) download(p *torrent.Piece) {
+func (c *Client) Seek(offset int64, whence int) (int64, error) {
 
+}
 
+//have to return full byte slice of piece
+//which should match the torrent.info.piece.length
+//except in the case of the last piece
+func (c *Client) getPiece(p *torrent.Piece) (error, []byte) {
+	fmt.Println("getting piece")
+
+	//c.Broadcast()
+
+	fmt.Println(p)
 }
 
 func (c *Client) addPeers(response tracker.Response) error {
@@ -104,10 +174,6 @@ func (c *Client) addPeers(response tracker.Response) error {
 	for _, p := range response.Peers {
 		go func(p tracker.Peer) {
 			defer wg.Done()
-
-			if len(c.Peers) > c.MaxPeers {
-				return
-			}
 
 			err, peer := peer.New(p.Ip, p.Port)
 			if err != nil {
@@ -127,9 +193,11 @@ func (c *Client) addPeers(response tracker.Response) error {
 	return nil
 }
 
+//Peers calling us
 func (c *Client) listen() {
-	//this cant return really...
 	for {
+		var p *peer.Peer
+
 		conn, err := c.listener.Accept()
 		if err != nil {
 			c.fatal(err)
@@ -144,6 +212,15 @@ func (c *Client) listen() {
 			return
 		}
 
+		//always process message
+		defer func() {
+			router.In(*p, data[0:len-1])
+			if err != nil {
+				c.fatal(err)
+				return
+			}
+		}()
+
 		addrs := strings.Split(conn.RemoteAddr().String(), ":")
 		port, err := strconv.Atoi(addrs[1])
 		if err != nil {
@@ -151,19 +228,22 @@ func (c *Client) listen() {
 			return
 		}
 
-		err, peer := peer.New(addrs[0], uint16(port))
+		p = c.Peers[addrs[0]+":"+addrs[1]]
+
+		//is this an existing connection?
+		if p != nil {
+			return
+		}
+
+		//establish the connection with a dial
+		err, p = peer.New(addrs[0], uint16(port))
 		if err != nil {
 			c.fatal(err)
 			return
 		}
 
-		err = c.AddPeer(peer)
-		if err != nil {
-			c.fatal(err)
-			return
-		}
-
-		router.In(*peer, data[0:len-1])
+		//add the peer
+		err = c.AddPeer(p)
 		if err != nil {
 			c.fatal(err)
 			return
@@ -185,13 +265,6 @@ func (c *Client) DeletePeer(id string) {
 	delete(c.Peers, id)
 }
 
-//message goes out to all peers
-func (c *Client) Broadcast(data []byte) {
-	for _, p := range c.Peers {
-		fmt.Println(p)
-	}
-}
-
 func (c *Client) Destroy() {
 	c.listener.Close()
 
@@ -203,28 +276,7 @@ func (c *Client) Destroy() {
 }
 
 func (c *Client) fatal(err error) {
+	logger.Log(err.Error())
 	c.Errors <- err
 	close(c.Errors)
-}
-
-//over the first 100 ports
-func findAvailPort(ip string, start int) (error, net.Listener, int16) {
-	for i := start; i <= start+100; i++ {
-		//One connection per torrent.
-		listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ip, i))
-		if err == nil {
-			return nil, listener, int16(i)
-		}
-	}
-
-	return errors.New("no port avail"), nil, int16(-1)
-}
-
-func generateId() [20]byte {
-	now := time.Now().Unix()
-	b := make([]byte, 8)
-	binary.LittleEndian.PutUint64(b, uint64(now))
-	binary.LittleEndian.PutUint64(b, uint64(os.Getpid()))
-
-	return sha1.Sum(b)
 }

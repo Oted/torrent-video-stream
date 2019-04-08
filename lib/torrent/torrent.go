@@ -15,13 +15,15 @@ type Torrent struct {
 	CreatedAt    int64
 	InfoHash     [20]byte
 	Meta         struct {
-		VidIndex   int
-		SubIndex   int
-		IsSingle   bool
-		HasSub     bool
-		VidFile    string
-		Downloaded int64 //bytes
-		Uploaded   int64 //bytes
+		TargetIndex int
+		SubIndex    int
+		HasVideo 	bool
+		HasAudio 	bool
+		IsSingle    bool
+		HasSub      bool
+		TargetFile  string
+		Downloaded  int64 //bytes
+		Uploaded    int64 //bytes
 	}
 }
 
@@ -59,8 +61,8 @@ func Create(data map[string]interface{}) (error, *Torrent) {
 	return nil, &torrent
 }
 
-func (t *Torrent) SelectVideoPieces() (err error, pi []*Piece) {
-	file := t.SelectVideoFile()
+func (t *Torrent) SelectPieces() (pi []*Piece) {
+	file := t.SelectedFile()
 	filePos := int64(0)
 
 	for _, p := range t.Info.Pieces {
@@ -74,8 +76,8 @@ func (t *Torrent) SelectVideoPieces() (err error, pi []*Piece) {
 	return
 }
 
-func (t *Torrent) SelectVideoFile() (*File) {
-	return t.Info.Files[t.Meta.VidIndex]
+func (t *Torrent) SelectedFile() (*File) {
+	return t.Info.Files[t.Meta.TargetIndex]
 }
 
 func meta(t *Torrent) error {
@@ -83,12 +85,21 @@ func meta(t *Torrent) error {
 	t.Meta.Uploaded = 0
 
 	hasVid, vidIndex := t.Info.Files.hasVideo()
-	if !hasVid {
-		return errors.New("no video found")
+	hasAudio, audIndex := t.Info.Files.hasAudio()
+
+	if !hasAudio && !hasVid {
+		return errors.New("no file found")
 	}
 
-	t.Meta.VidIndex = vidIndex
-	t.Meta.VidFile = t.Info.Files[vidIndex].Path[len(t.Info.Files[vidIndex].Path)-1]
+	if hasVid {
+		t.Meta.TargetIndex = vidIndex
+		t.Meta.TargetFile = t.Info.Files[vidIndex].Path[len(t.Info.Files[vidIndex].Path)-1]
+	}
+
+	if hasAudio {
+		t.Meta.TargetIndex = audIndex
+		t.Meta.TargetFile = t.Info.Files[vidIndex].Path[len(t.Info.Files[vidIndex].Path)-1]
+	}
 
 	hasSub, subIndex := t.Info.Files.hasSub()
 	if hasSub {

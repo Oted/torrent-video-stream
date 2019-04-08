@@ -2,13 +2,10 @@ package peer
 
 import (
 	"fmt"
+	"github.com/Oted/torrent-video-stream/lib/torrent"
 	"net"
 	"time"
 )
-
-type HandshakeRequest struct {
-	Request
-}
 
 type Request struct {
 	T    string
@@ -16,7 +13,7 @@ type Request struct {
 }
 
 type Peer struct {
-	Address    string
+	Address    string //ip:port
 	Port       uint16
 	Ip         string
 	Id         *string
@@ -47,11 +44,8 @@ func New(ip string, port uint16) (error, *Peer) {
 		Handshaked: false,
 	}
 
-	return nil, &c
-}
 
-func (c *Peer) Handshake(h HandshakeRequest) error {
-	return nil
+	return nil, &c
 }
 
 func (c *Peer) Receive(data []byte) error {
@@ -59,17 +53,54 @@ func (c *Peer) Receive(data []byte) error {
 	return nil
 }
 
-func (c *Peer) Send(data []byte) error {
+func (p *Peer) Choke() error {
+	return nil
+}
+
+func (p *Peer) Unchoke() error {
+	return nil
+}
+
+func (p *Peer) Interested(piece *torrent.Piece) error {
+	//piece.
+	return nil
+}
+
+func (p *Peer) NotInterested(piece *torrent.Piece) error {
+	return nil
+}
+
+func (p *Peer) Have(piece *torrent.Piece) error {
+	return nil
+}
+
+func (p *Peer) Bitfield() error {
+	return nil
+}
+
+func (p *Peer) Request() error {
+	return nil
+}
+
+func (p *Peer) Piece() error {
+	return nil
+}
+
+func (p *Peer) Cancel() error {
+	return nil
+}
+
+func (p *Peer) send(data []byte) error {
 	//logger.Log("sent data " + string(data) + "to cli " + c.Id)
 
 	r := Request{}
 
-	c.Sent = append(c.Sent, &r)
+	p.Sent = append(p.Sent, &r)
 
 	return nil
 }
 
-func (c *Peer) keepAlive() {
+func (p *Peer) keepAlive() {
 
 }
 

@@ -2,11 +2,13 @@ package tracker
 
 import (
 	"errors"
+	"fmt"
+	"io/ioutil"
+	"net/http"
+	"net/url"
 )
 
 func (t *Tracker) announceHttp(endpoint string) (error, *Response) {
-	return errors.New("unsupported protocol http (todo)"), nil
-	/*
 	req, err := http.NewRequest("GET", endpoint, nil)
 	if err != nil {
 		return err, nil
@@ -41,5 +43,4 @@ func (t *Tracker) announceHttp(endpoint string) (error, *Response) {
 	}
 
 	return nil, &Response{}
-	*/
 }

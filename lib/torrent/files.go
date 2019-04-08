@@ -11,6 +11,7 @@ type File struct {
 	Md5Sum *string
 	Start  int64
 	End    int64
+	Mime   string
 }
 type Files []*File
 
@@ -78,17 +79,52 @@ func (f Files) hasSub() (bool, int) {
 	return false, -1
 }
 
+
+func (f Files) hasAudio() (bool, int) {
+	for i, file := range f {
+		if strings.Contains(strings.ToLower(file.Path[len(file.Path)-1]), ".mp3") {
+			file.Mime = "audio/mpeg"
+			return true, i
+		}
+
+		if strings.Contains(strings.ToLower(file.Path[len(file.Path)-1]), ".wav") {
+			file.Mime = "audio/wav"
+			return true, i
+		}
+
+		if strings.Contains(strings.ToLower(file.Path[len(file.Path)-1]), ".flac") {
+			file.Mime = "audio/wav"
+			return true, i
+		}
+	}
+
+	return false, -1
+}
+
 func (f Files) hasVideo() (bool, int) {
 	for i, file := range f {
-		if strings.Contains(file.Path[len(file.Path)-1], ".mkv") {
+		if strings.Contains(strings.ToLower(file.Path[len(file.Path)-1]), ".mkv") {
+			file.Mime = "video/webm"
 			return true, i
 		}
 
-		if strings.Contains(file.Path[len(file.Path)-1], ".mp4") {
+		if strings.Contains(strings.ToLower(file.Path[len(file.Path)-1]), ".mp4") {
+			file.Mime = "video/mp4"
 			return true, i
 		}
 
-		if strings.Contains(file.Path[len(file.Path)-1], ".avi") {
+		if strings.Contains(strings.ToLower(file.Path[len(file.Path)-1]), ".avi") {
+			file.Mime = "video/x-msvideo"
+			return true, i
+		}
+
+		if strings.Contains(strings.ToLower(file.Path[len(file.Path)-1]), ".ogg") {
+			file.Mime = "video/ogg"
+			return true, i
+		}
+
+		if strings.Contains(strings.ToLower(file.Path[len(file.Path)-1]), ".vebm") {
+			file.Mime = "video/webm"
 			return true, i
 		}
 	}
