@@ -16,7 +16,7 @@ type Piece struct {
 	AmInterested bool //leech?
 	Have         bool
 	Data 		 []byte
-	Size 		 int64
+	ByteOffset 	 int64
 }
 
 type Pieces []*Piece
@@ -26,6 +26,7 @@ func parsePieces(i interface{}) (pi Pieces) {
 	index := 0
 
 	for sliceFloor := 0; sliceFloor < len(s); sliceFloor += 20 {
+		index++
 		slice := []byte(s[sliceFloor:sliceFloor+20])
 		sha := sha1.New()
 		sha.Write(slice)
@@ -42,7 +43,6 @@ func parsePieces(i interface{}) (pi Pieces) {
 		}
 
 		pi = append(pi, &p)
-		index++
 	}
 
 	return

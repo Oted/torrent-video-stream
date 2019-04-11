@@ -39,7 +39,7 @@ func (c *Client) Choked(data []byte) (error, *BRes) {
 func (c *Client) Interested(piece *torrent.Piece) (error, *BRes) {
 	for _, p := range c.Peers {
 		go func(p *peer.Peer) {
-			p.Interested(piece)
+			//p.Interested(piece)
 		}(p)
 	}
 

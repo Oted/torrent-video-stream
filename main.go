@@ -8,7 +8,7 @@ import (
 
 
 func main() {
-	_ := os.Getenv("PEER_HOST")
+	//_ := os.Getenv("PEER_HOST")
 	iH := os.Getenv("IO_HOST")
 	pP := os.Getenv("PEER_PORT")
 	iP := os.Getenv("IO_PORT")

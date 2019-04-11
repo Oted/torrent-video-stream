@@ -5,21 +5,38 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
+	"net/http"
 	"os"
 	"time"
 )
 
-func GetOutboundIP() (error, net.IP) {
+func GetOutboundIP() (error, string) {
 	conn, err := net.Dial("udp", "8.8.8.8:80")
 	if err != nil {
-		return err, nil
+		return err, ""
 	}
 	defer conn.Close()
 
-	localAddr := conn.LocalAddr().(*net.UDPAddr)
+	localAddr := conn.RemoteAddr().(*net.UDPAddr)
+	return nil, localAddr.String()
+}
 
-	return nil, localAddr.IP
+func GetPublicIP() (error, string) {
+	resp, err := http.Get("http://myexternalip.com/raw")
+	if err != nil {
+		os.Stderr.WriteString(err.Error())
+		os.Stderr.WriteString("\n")
+		os.Exit(1)
+	}
+
+	b, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err, ""
+	}
+
+	return nil, string(b)
 }
 
 func generateId() [20]byte {
@@ -32,10 +49,10 @@ func generateId() [20]byte {
 }
 
 //over the first 100 ports
-func findAvailPort(ip string, start int) (error, net.Listener, int16) {
+func findAvailPort(start int) (error, net.Listener, int16) {
 	for i := start; i <= start+100; i++ {
 		//One connection per torrent.
-		listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", ip, i))
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", i))
 		if err == nil {
 			return nil, listener, int16(i)
 		}

@@ -15,15 +15,16 @@ type Torrent struct {
 	CreatedAt    int64
 	InfoHash     [20]byte
 	Meta         struct {
-		TargetIndex int
-		SubIndex    int
-		HasVideo 	bool
-		HasAudio 	bool
-		IsSingle    bool
-		HasSub      bool
-		TargetFile  string
-		Downloaded  int64 //bytes
-		Uploaded    int64 //bytes
+		TargetIndex    int
+		SubIndex       int
+		HasVideo       bool
+		HasAudio       bool
+		IsSingle       bool
+		HasSub         bool
+		TargetFileName string
+		Downloaded     int64 //bytes
+		Uploaded       int64 //bytes
+		SelectedPieces []*Piece
 	}
 }
 
@@ -61,21 +62,6 @@ func Create(data map[string]interface{}) (error, *Torrent) {
 	return nil, &torrent
 }
 
-func (t *Torrent) SelectPieces() (pi []*Piece) {
-	file := t.SelectedFile()
-	filePos := int64(0)
-
-	for _, p := range t.Info.Pieces {
-		if filePos >= file.Start && filePos <= file.End {
-			pi = append(pi, p)
-		}
-
-		filePos += t.Info.PieceLength
-	}
-
-	return
-}
-
 func (t *Torrent) SelectedFile() (*File) {
 	return t.Info.Files[t.Meta.TargetIndex]
 }
@@ -93,18 +79,33 @@ func meta(t *Torrent) error {
 
 	if hasVid {
 		t.Meta.TargetIndex = vidIndex
-		t.Meta.TargetFile = t.Info.Files[vidIndex].Path[len(t.Info.Files[vidIndex].Path)-1]
+		t.Meta.TargetFileName = t.Info.Files[vidIndex].Path[len(t.Info.Files[vidIndex].Path)-1]
+		t.Meta.HasVideo = true
 	}
 
 	if hasAudio {
 		t.Meta.TargetIndex = audIndex
-		t.Meta.TargetFile = t.Info.Files[vidIndex].Path[len(t.Info.Files[vidIndex].Path)-1]
+		t.Meta.TargetFileName = t.Info.Files[vidIndex].Path[len(t.Info.Files[vidIndex].Path)-1]
+		t.Meta.HasAudio = true
 	}
 
 	hasSub, subIndex := t.Info.Files.hasSub()
 	if hasSub {
 		t.Meta.SubIndex = subIndex
 		t.Meta.HasSub = true
+	}
+
+	file := t.SelectedFile()
+	filePos := int64(0)
+
+	for _, p := range t.Info.Pieces {
+		p.ByteOffset = filePos
+
+		filePos += t.Info.PieceLength
+
+		if filePos >= file.Start && filePos <= file.End {
+			t.Meta.SelectedPieces = append(t.Meta.SelectedPieces, p)
+		}
 	}
 
 	return nil
