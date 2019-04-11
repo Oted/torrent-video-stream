@@ -28,7 +28,6 @@ type Peer struct {
 	Id         *string
 	KeepAlives int
 	conn       net.Conn
-	listener   net.Listener
 	Out        []*Message
 	In         []*Message
 	Handshaked bool //u sheked
@@ -48,12 +47,6 @@ func New(ip string, port uint16) (error, *Peer) {
 		return err, nil
 	}
 
-	//try listening on the same port
-	listener, err := net.Listen("tcp", fmt.Sprintf(":%d", tcpAddr.Port))
-	if err != nil {
-		return err, nil
-	}
-
 	p := Peer{
 		Address:    address,
 		Port:       port,
@@ -61,7 +54,6 @@ func New(ip string, port uint16) (error, *Peer) {
 		Id:         nil,
 		KeepAlives: 0,
 		conn:       conn,
-		listener: 	listener,
 		Handshaked: false,
 		Handshaken: false,
 	}
@@ -73,15 +65,9 @@ func New(ip string, port uint16) (error, *Peer) {
 
 func (p *Peer) listen() {
 	for {
-		conn, err := p.listener.Accept()
-		if err != nil {
-			logger.Fatal(fmt.Sprintf("error listening on remote port : %s\n", err.Error()))
-			return
-		}
-
 		data := make([]byte, 131072) //2^17?
 
-		len, err := conn.Read(data)
+		len, err := p.conn.Read(data)
 		if err != nil {
 			logger.Fatal(fmt.Sprintf("error reading data : %s\n", err.Error()))
 			return

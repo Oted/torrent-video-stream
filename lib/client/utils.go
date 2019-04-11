@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/Oted/torrent-video-stream/lib/logger"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -24,7 +25,7 @@ func GetOutboundIP() (error, string) {
 
 	for _, locals := range []string{"10.","192.168.","127.","169.254.","172.16.","224.",} {
 		if strings.Index(remoteAddr, locals) == 0 {
-			return errors.New("you seem to be behind NAT, cant connect to peers"), ""
+			logger.Log("you seem to be behind NAT, cant listen to peers")
 		}
 	}
 
