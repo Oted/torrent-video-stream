@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -19,8 +20,15 @@ func GetOutboundIP() (error, string) {
 	}
 	defer conn.Close()
 
-	localAddr := conn.RemoteAddr().(*net.UDPAddr)
-	return nil, localAddr.String()
+	remoteAddr := conn.LocalAddr().(*net.UDPAddr).String()
+
+	for _, locals := range []string{"10.","192.168.","127.","169.254.","172.16.","224.",} {
+		if strings.Index(remoteAddr, locals) == 0 {
+			return errors.New("you seem to be behind NAT, cant connect to peers"), ""
+		}
+	}
+
+	return nil, remoteAddr
 }
 
 func GetPublicIP() (error, string) {
