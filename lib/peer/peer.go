@@ -1,40 +1,41 @@
 package peer
 
 import (
+	"errors"
 	"fmt"
 	"github.com/Oted/torrent-video-stream/lib/logger"
+	"github.com/Oted/torrent-video-stream/lib/torrent"
 	"net"
 	"time"
 )
 
-/*
-0 - choke
-1 - unchoke
-2 - interested
-3 - not interested
-4 - have
-5 - bitfield
-6 - request
-7 - piece
-8 - cancel
-
-19 - handshake?
-*/
-
 type Peer struct {
-	Address    string //ip:port
-	Port       uint16
-	Ip         string
-	Id         *string
-	KeepAlives int
-	conn       net.Conn
-	Out        []*Message
-	In         []*Message
-	Handshaked bool //u sheked
-	Handshaken bool //he sheked
+	torrent        *torrent.Torrent
+	Address        string //ip:port
+	Port           uint16
+	Ip             string
+	Id             [20]byte
+	InKeepAlives   int
+	OutKeepAlives  int
+	Conn           net.Conn
+	Out            int
+	In             int
+	Handshaked     bool
+	Handshaken     bool
+	Has            map[uint32]*torrent.Piece
+	delete         func()
+	AmChoking      bool
+	AmInterested   bool
+	PeerChoking    bool
+	PeerInterested bool
+	Ticker         *time.Ticker
+	Messages       chan Message
 }
 
-func New(ip string, port uint16) (error, *Peer) {
+const DialTimeout = 7
+const KeepAliveInterval = 120
+
+func New(ip string, port uint16, t *torrent.Torrent, delete func()) (error, *Peer) {
 	address := fmt.Sprintf("%s:%d", ip, port)
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
@@ -42,70 +43,135 @@ func New(ip string, port uint16) (error, *Peer) {
 		return err, nil
 	}
 
-	conn, err := net.DialTimeout("tcp", tcpAddr.String(), time.Second * 5)
+	conn, err := net.DialTimeout("tcp", tcpAddr.String(), time.Second*DialTimeout)
 	if err != nil {
 		return err, nil
 	}
 
+	ticker := time.NewTicker(time.Second * KeepAliveInterval)
+
 	p := Peer{
-		Address:    address,
-		Port:       port,
-		Ip:         ip,
-		Id:         nil,
-		KeepAlives: 0,
-		conn:       conn,
-		Handshaked: false,
-		Handshaken: false,
+		torrent:        t,
+		Address:        address,
+		Port:           port,
+		Ip:             ip,
+		InKeepAlives:   0,
+		OutKeepAlives:  0,
+		Conn:           conn,
+		Handshaked:     false,
+		Handshaken:     false,
+		Out:            0,
+		In:             0,
+		delete:         delete,
+		AmChoking:      true,
+		AmInterested:   false,
+		PeerChoking:    true,
+		PeerInterested: false,
+		Ticker:         ticker,
+		Has:            make(map[uint32]*torrent.Piece),
+		Messages:       make(chan Message),
 	}
 
-	p.listen()
+	go p.listen()
+	go func() {
+		for {
+			<-ticker.C
+
+			p.OutboundKeepAlive()
+		}
+	}()
 
 	return nil, &p
 }
 
 func (p *Peer) listen() {
+	data := make([]byte, 16384) //2^14?
+
 	for {
-		data := make([]byte, 131072) //2^17?
-
-		len, err := p.conn.Read(data)
+		len, err := p.Conn.Read(data[:])
 		if err != nil {
-			logger.Fatal(fmt.Sprintf("error reading data : %s\n", err.Error()))
-			return
+			logger.Error(err)
+			p.delete()
+			break
+		} else {
+			err = p.Recive(data[:len])
+			if err != nil {
+				logger.Error(err)
+				return
+			}
 		}
 
-		err = p.Recive(data[0 : len-1])
-		if err != nil {
-			logger.Fatal(fmt.Sprintf("error recieving : %s\n", err.Error()))
-			return
-		}
 	}
 }
 
 func (p *Peer) Recive(b []byte) error {
-	fmt.Printf("recieve message with length %d\n", len(b))
-	err, m := NewMessage(b, len(p.In) > 0)
+	if len(b) < 1 {
+		return errors.New("invalid message")
+	}
+
+	err, t := decideMessageType(b)
 	if err != nil {
 		return err
 	}
 
-	p.In = append(p.In, &m)
+	logger.Log(fmt.Sprintf("recived message %s from %s ", t, p.Address))
+
+	switch t {
+	case "handshake":
+		err, _ := p.InboundHandshake(b)
+		if err != nil {
+			p.delete()
+			return err
+		}
+	case "choke":
+		err, _ := p.InboundChoke(b)
+		if err != nil {
+			return err
+		}
+	case "un_choke":
+		err, _ := p.InboundUnChoke(b)
+		if err != nil {
+			return err
+		}
+	case "interested":
+		err, _ := p.InboundInterested(b)
+		if err != nil {
+			return err
+		}
+	case "not_interested":
+		err, _ := p.InboundNotInterested(b)
+		if err != nil {
+			return err
+		}
+	case "have":
+	case "bitfield":
+		err, _ := p.InboundBitfield(b)
+		if err != nil {
+			p.delete()
+			return err
+		}
+
+	case "request":
+	case "piece":
+	case "cancel":
+	case "port":
+
+	}
+
+	p.Messages <- t
+
+	p.In++
 	return nil
 }
 
 func (p *Peer) Send(m Message) error {
-	fmt.Printf("sending message %s with length %d\n", m.T, len(m.Data))
-	_, err := p.conn.Write(m.Data)
+	logger.Log(fmt.Sprintf("sending message %s to %s ", m.T, p.Address))
+	_, err := p.Conn.Write(m.Data)
 	if err != nil {
 		return err
 	}
 
-	if m.T == "handshake" {
-		p.Handshaked = true
-	}
+	p.Out++
 
 	return nil
-}
-
-func (c *Peer) Destroy() {
-	c.conn.Close()
 }

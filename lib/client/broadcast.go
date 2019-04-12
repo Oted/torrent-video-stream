@@ -2,8 +2,9 @@ package client
 
 import (
 	"fmt"
+	"github.com/Oted/torrent-video-stream/lib/logger"
 	"github.com/Oted/torrent-video-stream/lib/peer"
-	"github.com/Oted/torrent-video-stream/lib/torrent"
+	"sync"
 )
 
 type BRes struct {
@@ -36,13 +37,24 @@ func (c *Client) Choked(data []byte) (error, *BRes) {
 	return nil, nil
 }
 
-func (c *Client) Interested(piece *torrent.Piece) (error, *BRes) {
+func (c *Client) Interested() error {
+	var wg sync.WaitGroup
+
+	wg.Add(len(c.Peers))
+
 	for _, p := range c.Peers {
 		go func(p *peer.Peer) {
-			//p.Interested(piece)
+			defer wg.Done()
+
+			err := p.OutboundInterested()
+			if err != nil {
+				logger.Error(err)
+			}
 		}(p)
 	}
 
-	return nil, nil
+	wg.Wait()
+
+	return nil
 }
 

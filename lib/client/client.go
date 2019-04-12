@@ -1,6 +1,7 @@
 package client
 
 import (
+	"errors"
 	"fmt"
 	"github.com/Oted/torrent-video-stream/lib/logger"
 	"github.com/Oted/torrent-video-stream/lib/peer"
@@ -12,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 )
 
 //if piece empty or null then done
@@ -22,20 +22,20 @@ type result struct {
 }
 
 type Client struct {
-	Torrent  *torrent.Torrent
-	MaxPeers int
-	Ip       string
-	Id       [20]byte
-	listener net.Listener
-	Peers    map[string]*peer.Peer //[ip:port]Peer
-	Errors   chan error
-	Tracker  tracker.Tracker
-	Results  chan result
-	Jobs     chan *torrent.Piece
-	done     bool
-	seek     int64
-	finished []bool
-	mapLock  *sync.Mutex
+	torrent    *torrent.Torrent
+	MaxPeers   int
+	Ip         string
+	Id         [20]byte
+	listener   net.Listener
+	Peers      map[string]*peer.Peer //[ip:port]Peer
+	Errors     chan error
+	Tracker    tracker.Tracker
+	Results    chan result
+	Jobs       chan *torrent.Piece
+	done       bool
+	seek       int64
+	finished   []bool
+	mapLock    *sync.Mutex
 }
 
 const workers = 1
@@ -54,7 +54,7 @@ func New(ip string, startPort int, t *torrent.Torrent) (error, *Client) {
 	}
 
 	c := Client{
-		Torrent:  t,
+		torrent:  t,
 		MaxPeers: 10,
 		Ip:       ip,
 		Id:       id,
@@ -74,7 +74,9 @@ func New(ip string, startPort int, t *torrent.Torrent) (error, *Client) {
 }
 
 func (c *Client) StartDownload() error {
-	go c.listen()
+	if !IsLocal(c.Ip) {
+		go c.listen()
+	}
 
 	err, res := c.Tracker.Announce(nil)
 	if err != nil {
@@ -82,6 +84,11 @@ func (c *Client) StartDownload() error {
 	}
 
 	err = c.addPeers(*res)
+	if err != nil {
+		return err
+	}
+
+	err = c.Interested()
 	if err != nil {
 		return err
 	}
@@ -103,11 +110,11 @@ func (c *Client) startJobs() {
 				}
 
 				//if the previous piece is not finished, must wait
-				if piece.Index > c.Torrent.Meta.SelectedPieces[0].Index && !c.finished[piece.Index-1-c.Torrent.Meta.SelectedPieces[0].Index] {
+				if piece.Index > c.torrent.Meta.SelectedPieces[0].Index && !c.finished[piece.Index-1-c.torrent.Meta.SelectedPieces[0].Index] {
 					for {
 						runtime.Gosched()
 
-						if c.finished[piece.Index-1-c.Torrent.Meta.SelectedPieces[0].Index] {
+						if c.finished[piece.Index-1-c.torrent.Meta.SelectedPieces[0].Index] {
 							c.Results <- result{
 								piece: piece,
 								bytes: res,
@@ -126,7 +133,7 @@ func (c *Client) startJobs() {
 		}(w)
 	}
 
-	targetPieces := c.Torrent.Meta.SelectedPieces
+	targetPieces := c.torrent.Meta.SelectedPieces
 
 	for _, p := range targetPieces {
 		c.Jobs <- p
@@ -154,7 +161,7 @@ func (c *Client) Read(p []byte) (n int, err error) {
 			p[i] = b
 		}
 
-		c.finished[result.piece.Index-c.Torrent.Meta.SelectedPieces[0].Index] = true
+		c.finished[result.piece.Index-c.torrent.Meta.SelectedPieces[0].Index] = true
 		return len(result.bytes), nil
 	}
 }
@@ -168,7 +175,7 @@ func (c *Client) Seek(offset int64, whence int) (t int64, e error) {
 	case 1:
 		t = c.seek + offset
 	case 2:
-		t = c.Torrent.SelectedFile().Length + offset
+		t = c.torrent.SelectedFile().Length + offset
 	}
 
 	if c.seek != t {
@@ -183,7 +190,32 @@ func (c *Client) Seek(offset int64, whence int) (t int64, e error) {
 //which should match the torrent.info.piece.length
 //except in the case of the last piece
 func (c *Client) getPiece(p *torrent.Piece) (error, []byte) {
-	time.Sleep(2 * time.Second)
+	var targetPeer *peer.Peer
+
+	for _, p := range c.Peers {
+		if !p.PeerChoking {
+			targetPeer = p
+			break
+		}
+
+		logger.Log("waiting for unhcoke/free peer...")
+		m := <- p.Messages
+
+		switch m.T {
+		case "un_choke" :
+			targetPeer = p
+			break
+		case "free" :
+			targetPeer = p
+			break
+		}
+	}
+
+	for beg, end
+	targetPeer.OutboundRequest(p, )
+
+
+
 	return nil, nil
 }
 
@@ -195,7 +227,7 @@ func (c *Client) addPeers(response tracker.Response) error {
 	for _, p := range response.Peers {
 		go func(p tracker.Peer) {
 			defer wg.Done()
-			err, peer := peer.New(p.Ip, p.Port)
+			err, peer := peer.New(p.Ip, p.Port, c.torrent, func() { c.DeletePeer(fmt.Sprintf("%s:%d", p.Ip, p.Port)) })
 			if err != nil {
 				logger.Log(err.Error())
 			} else {
@@ -214,7 +246,7 @@ func (c *Client) listen() {
 	for {
 		var p *peer.Peer
 
-		logger.Log(fmt.Sprintf("listening for incomming messages on %s ",c.listener.Addr().String()))
+		logger.Log(fmt.Sprintf("listening for incomming messages on %s ", c.listener.Addr().String()))
 		conn, err := c.listener.Accept()
 		if err != nil {
 			c.fatal(err)
@@ -231,7 +263,7 @@ func (c *Client) listen() {
 
 		//always process message
 		defer func() {
-			err := p.Recive(data[0 : len-1])
+			err := p.Recive(data[:len])
 			if err != nil {
 				c.fatal(err)
 				return
@@ -253,7 +285,7 @@ func (c *Client) listen() {
 		}
 
 		//establish the connection with a dial
-		err, p = peer.New(addrs[0], uint16(port))
+		err, p = peer.New(addrs[0], uint16(port), c.torrent, func() { c.DeletePeer(fmt.Sprintf("%s:%d", p.Ip, p.Port)) })
 		if err != nil {
 			c.fatal(err)
 			return
@@ -268,10 +300,10 @@ func (c *Client) AddPeer(p *peer.Peer) {
 		return
 	}
 
-	if !p.Handshaked {
-		message := peer.CreateHandshakeMessage(c.Torrent.InfoHash, c.Id)
-		err := p.Send(message)
+	logger.Log("adding peer : " + p.Address)
 
+	if !p.Handshaked {
+		err := p.OutboundHandshake(c.torrent.InfoHash, c.Id)
 		if err != nil {
 			logger.Log("could not handshake peer " + err.Error())
 			c.DeletePeer(p.Address)
@@ -286,17 +318,27 @@ func (c *Client) AddPeer(p *peer.Peer) {
 }
 
 func (c *Client) DeletePeer(id string) {
+	if c.Peers[id] == nil {
+		return
+	}
+
+	logger.Log("deleting peer with id : " + id)
+
 	c.mapLock.Lock()
-	c.Peers[id].Destroy()
-	c.mapLock.Unlock()
+	c.Peers[id].Conn.Close()
+	c.Peers[id].Ticker.Stop()
 	delete(c.Peers, id)
+	c.mapLock.Unlock()
+	if len(c.Peers) == 0 {
+		c.fatal(errors.New("no more peers left"))
+	}
 }
 
 func (c *Client) Destroy() {
 	c.listener.Close()
 
 	for _, p := range c.Peers {
-		p.Destroy()
+		p.Conn.Close()
 	}
 
 	c.Tracker.Destroy()

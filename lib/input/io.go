@@ -78,7 +78,7 @@ func (i *input) handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//client.read and client.seek will be called until EOF
-	http.ServeContent(w, r, client.Torrent.Meta.TargetFileName, i.now, client)
+	http.ServeContent(w, r, torrent.Meta.TargetFileName, i.now, client)
 /*	b := make([]byte, 10000000)
 
 	for {

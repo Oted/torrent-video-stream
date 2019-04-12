@@ -6,6 +6,9 @@ import (
 	"github.com/zeebo/bencode"
 )
 
+const MaxChunk = 16384
+
+
 type Torrent struct {
 	Announce     string
 	AnnounceList []string
@@ -54,7 +57,7 @@ func Create(data map[string]interface{}) (error, *Torrent) {
 		}
 	}
 
-	err := meta(&torrent)
+	err := postProcess(&torrent)
 	if err != nil {
 		return err, nil
 	}
@@ -66,7 +69,7 @@ func (t *Torrent) SelectedFile() (*File) {
 	return t.Info.Files[t.Meta.TargetIndex]
 }
 
-func meta(t *Torrent) error {
+func postProcess(t *Torrent) error {
 	t.Meta.Downloaded = 0
 	t.Meta.Uploaded = 0
 
@@ -97,6 +100,8 @@ func meta(t *Torrent) error {
 
 	file := t.SelectedFile()
 	filePos := int64(0)
+
+	chunkSize := t.Info.PieceLength / MaxChunk
 
 	for _, p := range t.Info.Pieces {
 		p.ByteOffset = filePos

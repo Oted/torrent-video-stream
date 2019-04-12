@@ -1,61 +1,55 @@
 package peer
 
-import (
-	"encoding/binary"
-	"fmt"
-)
+import "errors"
+
+/*
+19 "handshake"
+- "keep_alive"
+0 "choke"
+1 "un_choke"
+2 "interested"
+3 "not_interested"
+4 "have"
+5 "bitfield"
+6 "request"
+*/
 
 type Message struct {
 	T    string
 	Data []byte
 }
 
-func NewMessage(data []byte, isFirst bool) (err error, m Message) {
-	if isFirst {
-		err, m = parseHandshake(data)
-	} else {
-		err, m = parseMessage(data)
+func decideMessageType(b []byte) (error, string) {
+	if b[0] == 19 {
+		return nil, "handshake"
 	}
 
-	return nil, m
-}
-
-func parseMessage(d []byte) (error, Message) {
-	return nil, Message{}
-}
-
-func parseHandshake(d []byte) (error, Message) {
-	length := binary.BigEndian.Uint32(d[:1])
-	fmt.Printf("got handshake length : %d\n", length)
-
-	ident := binary.BigEndian.Uint32(d[1:length])
-	fmt.Printf("got handshake identifier : %d\n", ident)
-
-	sha := d[9+length : 20+length]
-	fmt.Printf("got handshake sha : %s\n", sha)
-
-	peerId := d[9+length : 20+length]
-	fmt.Printf("got handshake sha : %s\n", peerId)
-
-	return nil, Message{
-		T:    "handshake",
-		Data: d,
+	if len(b) < 5 {
+		return nil, "keep_alive"
 	}
-}
 
-func CreateHandshakeMessage(infoHash [20]byte, peer_id [20]byte) Message {
-	var b [68]byte
-
-	b[0] = 19
-
-	copy(b[1:20], "BitTorrent protocol")
-	copy(b[20:28], []byte{0,0,0,0,0,0,0,0})
-
-	copy(b[28:48], infoHash[:])
-	copy(b[48:68], peer_id[:])
-
-	return Message{
-		T:    "handshake",
-		Data: b[:],
+	switch b[4] {
+	case 0:
+		return nil, "choke"
+	case 1:
+		return nil, "un_choke"
+	case 2:
+		return nil, "interested"
+	case 3:
+		return nil, "not_interested"
+	case 4:
+		return nil, "have"
+	case 5:
+		return nil, "bitfield"
+	case 6:
+		return nil, "request"
+	case 7:
+		return nil, "piece"
+	case 8:
+		return nil, "cancel"
+	case 9:
+		return nil, "port"
 	}
+
+	return errors.New("invalid message"), ""
 }

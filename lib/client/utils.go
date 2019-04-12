@@ -23,13 +23,21 @@ func GetOutboundIP() (error, string) {
 
 	remoteAddr := conn.LocalAddr().(*net.UDPAddr).String()
 
-	for _, locals := range []string{"10.","192.168.","127.","169.254.","172.16.","224.",} {
-		if strings.Index(remoteAddr, locals) == 0 {
-			logger.Log("you seem to be behind NAT, cant listen to peers")
-		}
+	if IsLocal(remoteAddr) {
+		logger.Log("you seem to be behind NAT, cant listen to peers")
 	}
 
 	return nil, remoteAddr
+}
+
+func IsLocal(addr string) bool {
+	for _, locals := range []string{"10.","192.168.","127.","169.254.","172.16.","224.",} {
+		if strings.Index(addr, locals) == 0 {
+			return true
+		}
+	}
+
+	return false
 }
 
 func GetPublicIP() (error, string) {
