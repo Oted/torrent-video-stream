@@ -22,20 +22,21 @@ type result struct {
 }
 
 type Client struct {
-	torrent    *torrent.Torrent
-	MaxPeers   int
-	Ip         string
-	Id         [20]byte
-	listener   net.Listener
-	Peers      map[string]*peer.Peer //[ip:port]Peer
-	Errors     chan error
-	Tracker    tracker.Tracker
-	Results    chan result
-	Jobs       chan *torrent.Piece
-	done       bool
-	seek       int64
-	finished   []bool
-	mapLock    *sync.Mutex
+	torrent        *torrent.Torrent
+	MaxPeers       int
+	Ip             string
+	Id             [20]byte
+	listener       net.Listener
+	Peers          map[string]*peer.Peer //[ip:port]Peer
+	Errors         chan error
+	Tracker        tracker.Tracker
+	AvailablePeers chan string
+	Results        chan result
+	Jobs           chan *torrent.Piece
+	done           bool
+	seek           int64
+	finished       []bool
+	mapLock        *sync.Mutex
 }
 
 const workers = 1
@@ -54,20 +55,21 @@ func New(ip string, startPort int, t *torrent.Torrent) (error, *Client) {
 	}
 
 	c := Client{
-		torrent:  t,
-		MaxPeers: 10,
-		Ip:       ip,
-		Id:       id,
-		Tracker:  tracker,
-		listener: listener,
-		Peers:    make(map[string]*peer.Peer),
-		Errors:   make(chan error, 1),
-		Jobs:     make(chan *torrent.Piece, len(t.Meta.SelectedPieces)),
-		Results:  make(chan result, len(t.Meta.SelectedPieces)),
-		done:     false,
-		seek:     0,
-		finished: make([]bool, len(t.Meta.SelectedPieces)),
-		mapLock:  &sync.Mutex{},
+		torrent:        t,
+		MaxPeers:       10,
+		Ip:             ip,
+		Id:             id,
+		Tracker:        tracker,
+		listener:       listener,
+		Peers:          make(map[string]*peer.Peer),
+		Errors:         make(chan error, 1),
+		Jobs:           make(chan *torrent.Piece, len(t.Meta.SelectedPieces)),
+		Results:        make(chan result, len(t.Meta.SelectedPieces)),
+		done:           false,
+		seek:           0,
+		finished:       make([]bool, len(t.Meta.SelectedPieces)),
+		mapLock:        &sync.Mutex{},
+		AvailablePeers: make(chan string),
 	}
 
 	return nil, &c
@@ -190,31 +192,39 @@ func (c *Client) Seek(offset int64, whence int) (t int64, e error) {
 //which should match the torrent.info.piece.length
 //except in the case of the last piece
 func (c *Client) getPiece(p *torrent.Piece) (error, []byte) {
-	var targetPeer *peer.Peer
+	res := make([]byte, c.torrent.Info.PieceLength)
+	offset := uint32(0)
 
-	for _, p := range c.Peers {
-		if !p.PeerChoking {
-			targetPeer = p
-			break
+	runtime.Gosched()
+	for peerId := range c.AvailablePeers {
+		targetPeer := c.Peers[peerId]
+
+		if targetPeer == nil {
+			logger.Error(errors.New("non existing peer"))
+			continue
 		}
 
-		logger.Log("waiting for unhcoke/free peer...")
-		m := <- p.Messages
+		if targetPeer.Has[uint32(p.Index)] == nil {
+			logger.Log("peer does not have this piece")
+			continue
+		}
 
-		switch m.T {
-		case "un_choke" :
-			targetPeer = p
-			break
-		case "free" :
-			targetPeer = p
-			break
+		err := targetPeer.OutboundRequest(p, uint32(offset))
+		if err != nil {
+			return err, nil
+		}
+
+		for chunk := range targetPeer.Chunks {
+			fmt.Printf("GOT OUR FIRST CHUNK +%v\n", chunk)
+
+			for i, b := range chunk.Data {
+				res[uint32(i) + offset] = b
+			}
+
+			offset = offset + c.torrent.Meta.ChunkSize
+			continue
 		}
 	}
-
-	for beg, end
-	targetPeer.OutboundRequest(p, )
-
-
 
 	return nil, nil
 }
@@ -227,6 +237,7 @@ func (c *Client) addPeers(response tracker.Response) error {
 	for _, p := range response.Peers {
 		go func(p tracker.Peer) {
 			defer wg.Done()
+
 			err, peer := peer.New(p.Ip, p.Port, c.torrent, func() { c.DeletePeer(fmt.Sprintf("%s:%d", p.Ip, p.Port)) })
 			if err != nil {
 				logger.Log(err.Error())
@@ -314,7 +325,23 @@ func (c *Client) AddPeer(p *peer.Peer) {
 	c.mapLock.Lock()
 	c.Peers[p.Address] = p
 	c.mapLock.Unlock()
+
+	go c.ListenToPeerChan(p)
+
 	return
+}
+
+func (c *Client) ListenToPeerChan(p *peer.Peer) {
+	runtime.Gosched()
+
+	for msg := range p.Messages {
+		switch msg.T {
+		case "un_choke", "piece" :
+			if p.CurrentJobs == 0 && p.Handshaken && p.Handshaked && !p.PeerChoking {
+				c.AvailablePeers <- p.Address
+			}
+		}
+	}
 }
 
 func (c *Client) DeletePeer(id string) {
@@ -327,6 +354,8 @@ func (c *Client) DeletePeer(id string) {
 	c.mapLock.Lock()
 	c.Peers[id].Conn.Close()
 	c.Peers[id].Ticker.Stop()
+	close(c.Peers[id].Messages)
+	close(c.Peers[id].Chunks)
 	delete(c.Peers, id)
 	c.mapLock.Unlock()
 	if len(c.Peers) == 0 {

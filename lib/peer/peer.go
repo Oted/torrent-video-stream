@@ -30,6 +30,14 @@ type Peer struct {
 	PeerInterested bool
 	Ticker         *time.Ticker
 	Messages       chan Message
+	Chunks         chan Chunk
+	CurrentJobs    int
+}
+
+type Chunk struct {
+	Index  uint32
+	Offset uint32
+	Data   []byte
 }
 
 const DialTimeout = 7
@@ -70,6 +78,8 @@ func New(ip string, port uint16, t *torrent.Torrent, delete func()) (error, *Pee
 		Ticker:         ticker,
 		Has:            make(map[uint32]*torrent.Piece),
 		Messages:       make(chan Message),
+		Chunks:         make(chan Chunk),
+		CurrentJobs:    0,
 	}
 
 	go p.listen()
@@ -126,22 +136,26 @@ func (p *Peer) Recive(b []byte) error {
 	case "choke":
 		err, _ := p.InboundChoke(b)
 		if err != nil {
-			return err
+			logger.Error(err)
+			return nil
 		}
 	case "un_choke":
 		err, _ := p.InboundUnChoke(b)
 		if err != nil {
-			return err
+			logger.Error(err)
+			return nil
 		}
 	case "interested":
 		err, _ := p.InboundInterested(b)
 		if err != nil {
-			return err
+			logger.Error(err)
+			return nil
 		}
 	case "not_interested":
 		err, _ := p.InboundNotInterested(b)
 		if err != nil {
-			return err
+			logger.Error(err)
+			return nil
 		}
 	case "have":
 	case "bitfield":
@@ -150,15 +164,30 @@ func (p *Peer) Recive(b []byte) error {
 			p.delete()
 			return err
 		}
-
 	case "request":
 	case "piece":
+		err, piece := p.InboundPiece(b)
+		if err != nil {
+			logger.Error(err)
+			return nil
+		}
+
+		//write to client
+		p.Chunks <- Chunk{
+			Index:  piece.index,
+			Offset: piece.begin,
+			Data:   piece.block,
+		}
+
+		p.CurrentJobs--
 	case "cancel":
 	case "port":
-
 	}
 
-	p.Messages <- t
+	p.Messages <- Message{
+		T:    t,
+		Data: b,
+	}
 
 	p.In++
 	return nil

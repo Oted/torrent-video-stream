@@ -8,7 +8,6 @@ import (
 
 const MaxChunk = 16384
 
-
 type Torrent struct {
 	Announce     string
 	AnnounceList []string
@@ -18,6 +17,7 @@ type Torrent struct {
 	CreatedAt    int64
 	InfoHash     [20]byte
 	Meta         struct {
+		ChunkSize      uint32
 		TargetIndex    int
 		SubIndex       int
 		HasVideo       bool
@@ -101,7 +101,7 @@ func postProcess(t *Torrent) error {
 	file := t.SelectedFile()
 	filePos := int64(0)
 
-	chunkSize := t.Info.PieceLength / MaxChunk
+	t.Meta.ChunkSize = MaxChunk
 
 	for _, p := range t.Info.Pieces {
 		p.ByteOffset = filePos
