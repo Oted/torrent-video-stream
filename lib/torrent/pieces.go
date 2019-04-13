@@ -1,17 +1,24 @@
 package torrent
 
 import (
+	"bytes"
 	"crypto/sha1"
 	"hash"
 	"reflect"
 )
 
 type Piece struct {
-	Index      int
+	Index      int64
 	RawSha     []byte
 	Hash       hash.Hash
 	Sum        [20]byte
 	ByteOffset int64
+}
+
+func (p *Piece) Validate(b []byte) bool {
+	sum := sha1.Sum(b)
+
+	return bytes.Compare(sum[:], p.Sum[:]) == 0
 }
 
 type Pieces []*Piece
@@ -26,7 +33,7 @@ func parsePieces(i interface{}) (pi Pieces) {
 		sha.Write(slice)
 
 		p := Piece{
-			Index:  index,
+			Index:  int64(index),
 			RawSha: slice,
 			Hash:   sha,
 			Sum:    sha1.Sum(slice),

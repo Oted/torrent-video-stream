@@ -6,8 +6,6 @@ import (
 	"github.com/zeebo/bencode"
 )
 
-const MaxChunk = 16384
-
 type Torrent struct {
 	Announce     string
 	AnnounceList []string
@@ -17,7 +15,6 @@ type Torrent struct {
 	CreatedAt    int64
 	InfoHash     [20]byte
 	Meta         struct {
-		ChunkSize      uint32
 		TargetIndex    int
 		SubIndex       int
 		HasVideo       bool
@@ -101,12 +98,10 @@ func postProcess(t *Torrent) error {
 	file := t.SelectedFile()
 	filePos := int64(0)
 
-	t.Meta.ChunkSize = MaxChunk
-
 	for _, p := range t.Info.Pieces {
 		p.ByteOffset = filePos
 
-		filePos += t.Info.PieceLength
+		filePos += int64(t.Info.PieceLength)
 
 		if filePos >= file.Start && filePos <= file.End {
 			t.Meta.SelectedPieces = append(t.Meta.SelectedPieces, p)

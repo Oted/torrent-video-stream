@@ -17,10 +17,22 @@ func (p *Peer) InboundHave(d []byte) (error, *have) {
 	}
 }
 
-func (p *Peer) OutboundHave(index int) (error) {
+func (p *Peer) OutboundHave(i int64) (error) {
+	var b [9]byte
+
+	var prefix [4]byte
+	binary.BigEndian.PutUint32(prefix[:], uint32(5))
+	copy(b[0:4], prefix[:])
+
+	b[4] = 4
+
+	var index [4]byte
+	binary.BigEndian.PutUint32(index[:], uint32(i))
+	copy(b[5:9], index[:])
+
 	err := p.Send(Message{
 		T: "have",
-		Data: []byte{0, 0, 0, 1, 2},
+		Data: b[:],
 	})
 
 	if err != nil {

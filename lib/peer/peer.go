@@ -35,8 +35,8 @@ type Peer struct {
 }
 
 type Chunk struct {
-	Index  uint32
-	Offset uint32
+	Index  int64
+	Offset int64
 	Data   []byte
 }
 
@@ -114,14 +114,15 @@ func (p *Peer) listen() {
 	}
 }
 
+
 func (p *Peer) Recive(b []byte) error {
 	if len(b) < 1 {
-		return errors.New("invalid message")
+		return errors.New("empty invalid message")
 	}
 
 	err, t := decideMessageType(b)
 	if err != nil {
-		return err
+		return errors.New(fmt.Sprintf("unknown message type from %s of length %d",p.Address, len(b)))
 	}
 
 	logger.Log(fmt.Sprintf("recived message %s from %s ", t, p.Address))
@@ -174,8 +175,8 @@ func (p *Peer) Recive(b []byte) error {
 
 		//write to client
 		p.Chunks <- Chunk{
-			Index:  piece.index,
-			Offset: piece.begin,
+			Index:  int64(piece.index),
+			Offset: int64(piece.begin),
 			Data:   piece.block,
 		}
 

@@ -7,39 +7,44 @@ import (
 	"github.com/Oted/torrent-video-stream/lib/peer"
 	"github.com/Oted/torrent-video-stream/lib/torrent"
 	"github.com/Oted/torrent-video-stream/lib/tracker"
-	"io"
 	"net"
 	"runtime"
-	"strconv"
-	"strings"
 	"sync"
+	"time"
 )
 
 //if piece empty or null then done
 type result struct {
-	piece *torrent.Piece
-	bytes []byte
+	piece                *torrent.Piece
+	chunkPositionInPiece int64
+	bytes                []byte
 }
 
 type Client struct {
-	torrent        *torrent.Torrent
-	MaxPeers       int
-	Ip             string
-	Id             [20]byte
-	listener       net.Listener
-	Peers          map[string]*peer.Peer //[ip:port]Peer
-	Errors         chan error
-	Tracker        tracker.Tracker
-	AvailablePeers chan string
-	Results        chan result
-	Jobs           chan *torrent.Piece
-	done           bool
-	seek           int64
-	finished       []bool
-	mapLock        *sync.Mutex
+	torrent            *torrent.Torrent
+	MaxPeers           int
+	Ip                 string
+	Id                 [20]byte
+	listener           net.Listener
+	Peers              map[string]*peer.Peer //[ip:port]Peer
+	Errors             chan error
+	Tracker            tracker.Tracker
+	AvailablePeers     chan string
+	Results            chan result
+	Jobs               chan *torrent.Piece
+	done               bool
+	seek               int64
+	finished           []bool
+	mapLock            *sync.Mutex
+	latestChunk        int64
+	selectedFileOffset int64
 }
 
 const workers = 1
+const chunkWaitTimeout = 10
+const peerCheckInterval = 3
+const ChunkSize = int64(1024)
+const MaxCurrentJobs = 1
 
 func New(ip string, startPort int, t *torrent.Torrent) (error, *Client) {
 	err, listener, port := findAvailPort(startPort)
@@ -55,21 +60,23 @@ func New(ip string, startPort int, t *torrent.Torrent) (error, *Client) {
 	}
 
 	c := Client{
-		torrent:        t,
-		MaxPeers:       10,
-		Ip:             ip,
-		Id:             id,
-		Tracker:        tracker,
-		listener:       listener,
-		Peers:          make(map[string]*peer.Peer),
-		Errors:         make(chan error, 1),
-		Jobs:           make(chan *torrent.Piece, len(t.Meta.SelectedPieces)),
-		Results:        make(chan result, len(t.Meta.SelectedPieces)),
-		done:           false,
-		seek:           0,
-		finished:       make([]bool, len(t.Meta.SelectedPieces)),
-		mapLock:        &sync.Mutex{},
-		AvailablePeers: make(chan string),
+		latestChunk:        0,
+		torrent:            t,
+		MaxPeers:           10,
+		Ip:                 ip,
+		Id:                 id,
+		Tracker:            tracker,
+		listener:           listener,
+		Peers:              make(map[string]*peer.Peer),
+		Errors:             make(chan error, 1),
+		Jobs:               make(chan *torrent.Piece, len(t.Meta.SelectedPieces)),
+		Results:            make(chan result, len(t.Meta.SelectedPieces)),
+		done:               false,
+		seek:               0,
+		finished:           make([]bool, len(t.Meta.SelectedPieces)),
+		mapLock:            &sync.Mutex{},
+		AvailablePeers:     make(chan string),
+		selectedFileOffset: t.SelectedFile().Start % t.Info.PieceLength,
 	}
 
 	return nil, &c
@@ -95,13 +102,13 @@ func (c *Client) StartDownload() error {
 		return err
 	}
 
-	c.startJobs()
+	c.startJobs(workers)
 
 	return nil
 }
 
-func (c *Client) startJobs() {
-	for w := 1; w <= workers; w++ {
+func (c *Client) startJobs(count int) {
+	for w := 1; w <= count; w++ {
 		go func(wor int) {
 			for piece := range c.Jobs {
 				err, res := c.getPiece(piece)
@@ -111,26 +118,7 @@ func (c *Client) startJobs() {
 					return
 				}
 
-				//if the previous piece is not finished, must wait
-				if piece.Index > c.torrent.Meta.SelectedPieces[0].Index && !c.finished[piece.Index-1-c.torrent.Meta.SelectedPieces[0].Index] {
-					for {
-						runtime.Gosched()
-
-						if c.finished[piece.Index-1-c.torrent.Meta.SelectedPieces[0].Index] {
-							c.Results <- result{
-								piece: piece,
-								bytes: res,
-							}
-
-							break
-						}
-					}
-				} else {
-					c.Results <- result{
-						piece: piece,
-						bytes: res,
-					}
-				}
+				go c.GotPiece(piece, res)
 			}
 		}(w)
 	}
@@ -144,56 +132,12 @@ func (c *Client) startJobs() {
 	close(c.Jobs)
 }
 
-func (c *Client) Read(p []byte) (n int, err error) {
-	if c.done {
-		return 0, io.EOF
-	}
-
-	//wait for results here
-	for {
-		result := <-c.Results
-
-		if result.piece == nil {
-			return 0, io.EOF
-		}
-
-		//this has to convert each pieces local byte slice to the global indexed slice
-		for i, b := range result.bytes {
-			//TODO here we can only return the bytes after the offset
-			p[i] = b
-		}
-
-		c.finished[result.piece.Index-c.torrent.Meta.SelectedPieces[0].Index] = true
-		return len(result.bytes), nil
-	}
-}
-
-func (c *Client) Seek(offset int64, whence int) (t int64, e error) {
-	logger.Log(fmt.Sprintf("seek called for offset %d whence %d", offset, whence))
-
-	switch whence {
-	case 0:
-		t = offset
-	case 1:
-		t = c.seek + offset
-	case 2:
-		t = c.torrent.SelectedFile().Length + offset
-	}
-
-	if c.seek != t {
-		c.seek = t
-		//TODO here we must flush the jobs and restart with the pieces containing and after the offset!
-	}
-
-	return
-}
-
 //have to return full byte slice of piece
 //which should match the torrent.info.piece.length
 //except in the case of the last piece
 func (c *Client) getPiece(p *torrent.Piece) (error, []byte) {
 	res := make([]byte, c.torrent.Info.PieceLength)
-	offset := uint32(0)
+	offset := int64(0)
 
 	runtime.Gosched()
 	for peerId := range c.AvailablePeers {
@@ -204,29 +148,58 @@ func (c *Client) getPiece(p *torrent.Piece) (error, []byte) {
 			continue
 		}
 
-		if targetPeer.Has[uint32(p.Index)] == nil {
-			logger.Log("peer does not have this piece")
+		if offset >= c.torrent.Info.PieceLength {
+			//here done
+			break
+		}
+
+		length := ChunkSize
+
+		//special last chunk size
+		if (c.torrent.Info.PieceLength-offset)%ChunkSize != 0 {
+			length = offset - c.torrent.Info.PieceLength
+		}
+
+		err := targetPeer.OutboundRequest(p, uint32(offset), uint32(length))
+		if err != nil {
+			logger.Error(err)
 			continue
 		}
 
-		err := targetPeer.OutboundRequest(p, uint32(offset))
-		if err != nil {
-			return err, nil
-		}
-
-		for chunk := range targetPeer.Chunks {
-			fmt.Printf("GOT OUR FIRST CHUNK +%v\n", chunk)
-
-			for i, b := range chunk.Data {
-				res[uint32(i) + offset] = b
+		select {
+		case chunk := <-targetPeer.Chunks:
+			if chunk.Offset != offset {
+				logger.Error(errors.New("chunk does not match expected chunk"))
+				continue
 			}
 
-			offset = offset + c.torrent.Meta.ChunkSize
+			for i, b := range chunk.Data {
+				res[int64(i)+offset] = b
+			}
+
+			offset = offset + ChunkSize
+
+			go c.GotChunk(result{
+				piece:                p,
+				chunkPositionInPiece: offset/ChunkSize - 1,
+				bytes:                chunk.Data,
+			})
+			continue
+		case <-time.After(chunkWaitTimeout * time.Second):
+			if c.Peers[peerId] != nil {
+				logger.Log(fmt.Sprintf("peer %s does not answer", c.Peers[peerId].Address))
+			} else {
+				logger.Log(fmt.Sprintf("peer has disconnected"))
+			}
 			continue
 		}
 	}
 
-	return nil, nil
+	if !p.Validate(res) {
+		logger.Error(errors.New("piece does not match sha sum"))
+	}
+
+	return nil, res
 }
 
 func (c *Client) addPeers(response tracker.Response) error {
@@ -250,60 +223,6 @@ func (c *Client) addPeers(response tracker.Response) error {
 	wg.Wait()
 
 	return nil
-}
-
-//Peers calling us
-func (c *Client) listen() {
-	for {
-		var p *peer.Peer
-
-		logger.Log(fmt.Sprintf("listening for incomming messages on %s ", c.listener.Addr().String()))
-		conn, err := c.listener.Accept()
-		if err != nil {
-			c.fatal(err)
-			return
-		}
-
-		data := make([]byte, 131072) //2^17?
-
-		len, err := conn.Read(data)
-		if err != nil {
-			c.fatal(err)
-			return
-		}
-
-		//always process message
-		defer func() {
-			err := p.Recive(data[:len])
-			if err != nil {
-				c.fatal(err)
-				return
-			}
-		}()
-
-		addrs := strings.Split(conn.RemoteAddr().String(), ":")
-		port, err := strconv.Atoi(addrs[1])
-		if err != nil {
-			c.fatal(err)
-			return
-		}
-
-		p = c.Peers[addrs[0]+":"+addrs[1]]
-
-		//is this an existing connection?
-		if p != nil {
-			return
-		}
-
-		//establish the connection with a dial
-		err, p = peer.New(addrs[0], uint16(port), c.torrent, func() { c.DeletePeer(fmt.Sprintf("%s:%d", p.Ip, p.Port)) })
-		if err != nil {
-			c.fatal(err)
-			return
-		}
-
-		c.AddPeer(p)
-	}
 }
 
 func (c *Client) AddPeer(p *peer.Peer) {
@@ -331,15 +250,64 @@ func (c *Client) AddPeer(p *peer.Peer) {
 	return
 }
 
+func (c *Client) GotChunk(res result) {
+	send := func() {
+		c.Results <- res
+		c.latestChunk++
+	}
+
+	if res.chunkPositionInPiece > 0 && c.latestChunk < (res.chunkPositionInPiece-1) {
+		for {
+			runtime.Gosched()
+
+			if c.latestChunk == (res.chunkPositionInPiece - 1) {
+				send()
+				return
+			}
+		}
+	} else {
+		send()
+	}
+
+	return
+}
+
+func (c *Client) GotPiece(p *torrent.Piece, b []byte) {
+	logger.Log(fmt.Sprintf("got full piece %d ", p.Index))
+
+	c.finished[p.Index-c.torrent.Meta.SelectedPieces[0].Index] = true
+
+	s := c.Tracker.State
+
+	s.Downloaded += c.torrent.Info.PieceLength
+	s.Left -= c.torrent.Info.PieceLength
+
+	c.Tracker.Announce(&s)
+	c.Have(p)
+
+	return
+}
+
 func (c *Client) ListenToPeerChan(p *peer.Peer) {
 	runtime.Gosched()
 
+	check := func() {
+		if p.CurrentJobs < 1 && p.Handshaken && p.Handshaked && !p.PeerChoking {
+			c.AvailablePeers <- p.Address
+		}
+	}
+
+	go func() {
+		for {
+			<-time.NewTicker(peerCheckInterval * time.Second).C
+			check()
+		}
+	}()
+
 	for msg := range p.Messages {
 		switch msg.T {
-		case "un_choke", "piece" :
-			if p.CurrentJobs == 0 && p.Handshaken && p.Handshaked && !p.PeerChoking {
-				c.AvailablePeers <- p.Address
-			}
+		case "un_choke", "piece":
+			check()
 		}
 	}
 }
@@ -359,7 +327,7 @@ func (c *Client) DeletePeer(id string) {
 	delete(c.Peers, id)
 	c.mapLock.Unlock()
 	if len(c.Peers) == 0 {
-		c.fatal(errors.New("no more peers left"))
+		logger.Log("no moer peers")
 	}
 }
 
@@ -367,7 +335,7 @@ func (c *Client) Destroy() {
 	c.listener.Close()
 
 	for _, p := range c.Peers {
-		p.Conn.Close()
+		c.DeletePeer(p.Address)
 	}
 
 	c.Tracker.Destroy()

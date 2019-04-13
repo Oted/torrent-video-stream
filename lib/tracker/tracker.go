@@ -40,7 +40,6 @@ type Tracker struct {
 
 	State    State
 	Replies  []*Response
-	Protocol string
 }
 
 type Response struct {
@@ -73,11 +72,8 @@ type State struct {
 }
 
 func Create(t *torrent.Torrent, ip string, port int16, peerId [20]byte) (error, Tracker) {
-	protocol := strings.Split(t.Announce, ":")[0]
-
 	return nil, Tracker{
 		torrent:  t,
-		Protocol: protocol,
 		State: State{ //default state
 			InfoHash:     t.InfoHash,
 			PeerId:       peerId,
@@ -96,21 +92,35 @@ func Create(t *torrent.Torrent, ip string, port int16, peerId [20]byte) (error, 
 }
 
 func (t *Tracker) Announce(s *State) (error, *Response) {
+	target := t.torrent.Announce
+
+	if strings.Contains(target, "http") {
+		for _, url := range t.torrent.AnnounceList {
+			if strings.Split(url, ":")[0] == "udp" {
+				target = url
+				break
+			}
+		}
+	}
+
 	if s != nil {
 		t.State = *s
 	}
 
-	switch t.Protocol {
+	protocol := strings.Split(target, ":")[0]
+
+
+	switch protocol {
 	case "http":
-		return t.announceHttp(t.torrent.Announce)
+		return t.announceHttp(target)
 	case "https":
-		return t.announceHttp(t.torrent.Announce)
+		return t.announceHttp(target)
 	case "udp":
-		url := strings.Replace(strings.Replace(t.torrent.Announce, "udp://", "", 1), "/announce", "", 1)
+		url := strings.Replace(strings.Replace(target, "udp://", "", 1), "/announce", "", 1)
 		return t.announceUDP(url)
 	}
 
-	return errors.New("unsupported protocol " + t.Protocol), nil
+	return errors.New("unsupported protocol " + protocol), nil
 }
 
 func (t *Tracker) Destroy() {

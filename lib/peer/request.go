@@ -13,7 +13,7 @@ func (p *Peer) InboundRequest(d []byte) (error, *request) {
 	return nil, &request{}
 }
 
-func (p *Peer) OutboundRequest(piece *torrent.Piece, o uint32) (error) {
+func (p *Peer) OutboundRequest(piece *torrent.Piece, o uint32, chunkSize uint32) (error) {
 	//13 + 4
 	var b [17]byte
 
@@ -25,15 +25,15 @@ func (p *Peer) OutboundRequest(piece *torrent.Piece, o uint32) (error) {
 
 	var index [4]byte
 	binary.BigEndian.PutUint32(index[:], uint32(piece.Index))
-	copy(b[5:8], index[:])
+	copy(b[5:9], index[:])
 
 	var begin [4]byte
 	binary.BigEndian.PutUint32(begin[:], o)
-	copy(b[8:11], begin[:])
+	copy(b[9:13], begin[:])
 
 	var length [4]byte
-	binary.BigEndian.PutUint32(length[:], p.torrent.Meta.ChunkSize)
-	copy(b[11:], length[:])
+	binary.BigEndian.PutUint32(length[:], chunkSize)
+	copy(b[13:17], length[:])
 
 	err := p.Send(Message{
 		T: "request",

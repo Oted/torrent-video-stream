@@ -51,5 +51,5 @@ func decideMessageType(b []byte) (error, string) {
 		return nil, "port"
 	}
 
-	return errors.New("invalid message"), ""
+	return errors.New("invalid message from "), ""
 }

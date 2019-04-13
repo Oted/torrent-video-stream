@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/Oted/torrent-video-stream/lib/logger"
 	"github.com/Oted/torrent-video-stream/lib/peer"
+	"github.com/Oted/torrent-video-stream/lib/torrent"
 	"sync"
 )
 
@@ -21,9 +22,9 @@ func (c *Client) Want(data []byte) (error, *BRes) {
 	return nil, nil
 }
 
-func (c *Client) Have(data []byte) (error, *BRes) {
+func (c *Client) Have(piece *torrent.Piece) (error, *BRes) {
 	for _, p := range c.Peers {
-		fmt.Println(p)
+		p.OutboundHave(piece.Index)
 	}
 
 	return nil, nil

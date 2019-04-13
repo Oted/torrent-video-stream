@@ -16,9 +16,9 @@ func (p *Peer) InboundPiece(d []byte) (error, *piece) {
 
 	index := binary.BigEndian.Uint32(d[5:9])
 
-	begin := binary.BigEndian.Uint32(d[9:12])
+	begin := binary.BigEndian.Uint32(d[9:13])
 
-	copy(bf, d[12:12 + l - 9])
+	copy(bf, d[13:])
 
 	return nil, &piece{
 		index: index,
