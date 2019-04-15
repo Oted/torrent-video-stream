@@ -32,7 +32,7 @@ func parseInfo(i interface{}) (info Info) {
 				f := parseFile(reflect.ValueOf(i))
 				f.Length = reflect.ValueOf(val.Interface()).Int()
 				f.Start = 0
-				f.End = f.Length
+				f.End = f.Length - 1
 				info.Files = append(info.Files, f)
 			}
 		}

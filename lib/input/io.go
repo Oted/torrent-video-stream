@@ -23,11 +23,12 @@ func NewIo(io_port int, io_host string, peer_port int) (error, *input) {
 	}
 
 	s := &http.Server{
-		Addr:           fmt.Sprintf("%s:%d", io_host, io_port),
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		MaxHeaderBytes: 1 << 20,
+		Addr:         fmt.Sprintf("%s:%d", io_host, io_port),
+		WriteTimeout: time.Hour,
+		ReadTimeout:  time.Hour,
 	}
+
+	s.SetKeepAlivesEnabled(true)
 
 	i := input{
 		ioHost:   "0.0.0.0",
@@ -53,7 +54,7 @@ func (i *input) handler(w http.ResponseWriter, r *http.Request) {
 
 	}
 
-	logger.Log("recieved message " + string(input))
+	logger.Log("received message " + string(input))
 
 	err, torrent := torrentFromPath(string(input))
 	if err != nil {
@@ -78,18 +79,18 @@ func (i *input) handler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//client.read and client.seek will be called until EOF
-	http.ServeContent(w, r, torrent.Meta.TargetFileName, i.now, client)
-/*	b := make([]byte, 10000000)
+	http.ServeContent(w, r, torrent.Meta.TargetFileName, time.Time{}, client)
+	/*	b := make([]byte, 10000000)
 
-	for {
-		_, err := client.Read(b)
+		for {
+			_, err := client.Read(b)
 
-		if err != nil {
-			fmt.Println(err.Error())
-			return
+			if err != nil {
+				fmt.Println(err.Error())
+				return
+			}
 		}
-	}
-*/
+	*/
 	//if there is an error then end
 	for err := range client.Errors {
 		w.Write([]byte("\n" + err.Error()))

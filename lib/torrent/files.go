@@ -16,7 +16,7 @@ type File struct {
 type Files []*File
 
 func parseFiles(i interface{}) (files Files) {
-	sum := int64(0)
+	pos := int64(0)
 	if reflect.TypeOf(i).Kind() == reflect.Slice {
 		s := reflect.ValueOf(i)
 
@@ -28,9 +28,9 @@ func parseFiles(i interface{}) (files Files) {
 			}
 
 			f := parseFile(mapVal)
-			f.Start = sum
-			sum += f.Length
-			f.End = sum
+			f.Start = pos
+			pos += f.Length
+			f.End = pos
 
 			files = append(files, f)
 		}

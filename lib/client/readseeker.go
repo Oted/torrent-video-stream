@@ -31,7 +31,7 @@ func (c *Client) Read(p []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 
-	//wait for results here
+	fmt.Printf("read called!\n")
 	for {
 		result := <-c.Results
 
@@ -39,17 +39,27 @@ func (c *Client) Read(p []byte) (n int, err error) {
 			return 0, io.EOF
 		}
 
-		startPos := result.piece.Index * c.torrent.Info.PieceLength + (ChunkSize * result.chunkPositionInPiece) - c.selectedFileOffset
+		byteOffset :=
+			((result.piece.Index - c.torrent.Meta.SelectedPieces[0].Index) * c.torrent.Info.PieceLength) +
+			((result.chunkPositionInPiece - c.torrent.SelectedFile().Start/ChunkSize) * ChunkSize)
 
 		for i, b := range result.bytes {
-			if startPos+int64(i) < 0 {
+			index := int64(i)
+			if index < 0 || index > c.torrent.SelectedFile().Length {
 				continue
 			}
 
-			p[startPos+int64(i)] = b
+			n++
+			p[index] = b
+			fmt.Printf("writing byte %d to pos %d\n", b, index + byteOffset)
 		}
 
-		return len(result.bytes), nil
+		logger.Log(fmt.Sprintf("sending chunk %d of piece %d with length %d and start index %d",
+			result.chunkPositionInPiece,
+			result.piece.Index,
+			n,
+			byteOffset))
+		return
 	}
 }
 

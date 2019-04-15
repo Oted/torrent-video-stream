@@ -60,7 +60,7 @@ func New(ip string, startPort int, t *torrent.Torrent) (error, *Client) {
 	}
 
 	c := Client{
-		latestChunk:        0,
+		latestChunk:        t.SelectedFile().Start/ChunkSize,
 		torrent:            t,
 		MaxPeers:           10,
 		Ip:                 ip,
@@ -139,6 +139,10 @@ func (c *Client) getPiece(p *torrent.Piece) (error, []byte) {
 	res := make([]byte, c.torrent.Info.PieceLength)
 	offset := int64(0)
 
+	if p.Index ==  c.torrent.Meta.SelectedPieces[0].Index {
+		offset = c.selectedFileOffset
+	}
+
 	runtime.Gosched()
 	for peerId := range c.AvailablePeers {
 		targetPeer := c.Peers[peerId]
@@ -156,8 +160,8 @@ func (c *Client) getPiece(p *torrent.Piece) (error, []byte) {
 		length := ChunkSize
 
 		//special last chunk size
-		if (c.torrent.Info.PieceLength-offset)%ChunkSize != 0 {
-			length = offset - c.torrent.Info.PieceLength
+		if offset + ChunkSize > c.torrent.Info.PieceLength {
+			length = c.torrent.Info.PieceLength - offset
 		}
 
 		err := targetPeer.OutboundRequest(p, uint32(offset), uint32(length))
@@ -251,6 +255,7 @@ func (c *Client) AddPeer(p *peer.Peer) {
 }
 
 func (c *Client) GotChunk(res result) {
+	fmt.Printf("queueing chunk %d with current pointer %d\n", res.chunkPositionInPiece, c.latestChunk)
 	send := func() {
 		c.Results <- res
 		c.latestChunk++
@@ -258,8 +263,6 @@ func (c *Client) GotChunk(res result) {
 
 	if res.chunkPositionInPiece > 0 && c.latestChunk < (res.chunkPositionInPiece-1) {
 		for {
-			runtime.Gosched()
-
 			if c.latestChunk == (res.chunkPositionInPiece - 1) {
 				send()
 				return
