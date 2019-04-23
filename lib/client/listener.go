@@ -52,7 +52,7 @@ func (c *Client) listen() {
 		}
 
 		//establish the connection with a dial
-		err, p = peer.New(addrs[0], uint16(port), c.torrent, func() { c.DeletePeer(fmt.Sprintf("%s:%d", p.Ip, p.Port)) })
+		err, p = peer.New(addrs[0], uint16(port), c.torrent, ChunkSize, func() { c.DeletePeer(fmt.Sprintf("%s:%d", p.Ip, p.Port)) })
 		if err != nil {
 			c.fatal(err)
 			return

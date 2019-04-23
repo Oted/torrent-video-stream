@@ -37,13 +37,14 @@ type Client struct {
 	finished           []bool
 	mapLock            *sync.Mutex
 	latestChunk        int64
+	firstChunk         int64
 	selectedFileOffset int64
 }
 
 const workers = 1
 const chunkWaitTimeout = 10
 const peerCheckInterval = 3
-const ChunkSize = int64(1024)
+const ChunkSize = 1024
 const MaxCurrentJobs = 1
 
 func New(ip string, startPort int, t *torrent.Torrent) (error, *Client) {
@@ -60,7 +61,8 @@ func New(ip string, startPort int, t *torrent.Torrent) (error, *Client) {
 	}
 
 	c := Client{
-		latestChunk:        t.SelectedFile().Start/ChunkSize,
+		latestChunk:        t.SelectedFile().Start / ChunkSize,
+		firstChunk:         t.SelectedFile().Start / ChunkSize,
 		torrent:            t,
 		MaxPeers:           10,
 		Ip:                 ip,
@@ -139,7 +141,7 @@ func (c *Client) getPiece(p *torrent.Piece) (error, []byte) {
 	res := make([]byte, c.torrent.Info.PieceLength)
 	offset := int64(0)
 
-	if p.Index ==  c.torrent.Meta.SelectedPieces[0].Index {
+	if p.Index == c.torrent.Meta.SelectedPieces[0].Index {
 		offset = c.selectedFileOffset
 	}
 
@@ -157,10 +159,10 @@ func (c *Client) getPiece(p *torrent.Piece) (error, []byte) {
 			break
 		}
 
-		length := ChunkSize
+		length := int64(ChunkSize)
 
 		//special last chunk size
-		if offset + ChunkSize > c.torrent.Info.PieceLength {
+		if offset+ChunkSize > c.torrent.Info.PieceLength {
 			length = c.torrent.Info.PieceLength - offset
 		}
 
@@ -215,7 +217,7 @@ func (c *Client) addPeers(response tracker.Response) error {
 		go func(p tracker.Peer) {
 			defer wg.Done()
 
-			err, peer := peer.New(p.Ip, p.Port, c.torrent, func() { c.DeletePeer(fmt.Sprintf("%s:%d", p.Ip, p.Port)) })
+			err, peer := peer.New(p.Ip, p.Port, c.torrent, ChunkSize, func() { c.DeletePeer(fmt.Sprintf("%s:%d", p.Ip, p.Port)) })
 			if err != nil {
 				logger.Log(err.Error())
 			} else {
@@ -230,6 +232,7 @@ func (c *Client) addPeers(response tracker.Response) error {
 }
 
 func (c *Client) AddPeer(p *peer.Peer) {
+	c.mapLock.Lock()
 	if c.Peers[p.Address] != nil {
 		return
 	}
@@ -245,23 +248,27 @@ func (c *Client) AddPeer(p *peer.Peer) {
 		}
 	}
 
-	c.mapLock.Lock()
 	c.Peers[p.Address] = p
 	c.mapLock.Unlock()
-
 	go c.ListenToPeerChan(p)
 
 	return
 }
 
 func (c *Client) GotChunk(res result) {
-	fmt.Printf("queueing chunk %d with current pointer %d\n", res.chunkPositionInPiece, c.latestChunk)
 	send := func() {
 		c.Results <- res
 		c.latestChunk++
 	}
 
-	if res.chunkPositionInPiece > 0 && c.latestChunk < (res.chunkPositionInPiece-1) {
+	fileChunk :=
+		(res.piece.Index-c.torrent.Meta.SelectedPieces[0].Index)*(c.torrent.Info.PieceLength/ChunkSize) +
+			+ res.chunkPositionInPiece
+
+	if res.chunkPositionInPiece > c.firstChunk && c.latestChunk < fileChunk {
+		fmt.Printf("queueing chunk %d with current pointer %d\n", res.chunkPositionInPiece, c.latestChunk)
+		runtime.Gosched()
+
 		for {
 			if c.latestChunk == (res.chunkPositionInPiece - 1) {
 				send()
@@ -279,6 +286,8 @@ func (c *Client) GotPiece(p *torrent.Piece, b []byte) {
 	logger.Log(fmt.Sprintf("got full piece %d ", p.Index))
 
 	c.finished[p.Index-c.torrent.Meta.SelectedPieces[0].Index] = true
+
+	p.Data = b
 
 	s := c.Tracker.State
 

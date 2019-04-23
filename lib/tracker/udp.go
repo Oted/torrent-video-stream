@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"time"
 )
 
 func (t *Tracker) announceUDP(url string) (error, *Response) {
@@ -106,10 +107,13 @@ func (t *Tracker) handshakeUDP(url string) (err error) {
 		return err
 	}
 
-	conn, err := net.DialUDP("udp", nil, raddr)
+	conn, err := net.DialTimeout("udp", raddr.String(), time.Second * 2)
 	if err != nil {
 		return err
 	}
+
+	udpConn, _ := conn.(*net.UDPConn)
+
 
 	tid := newTransactionId()
 
@@ -128,12 +132,12 @@ func (t *Tracker) handshakeUDP(url string) (err error) {
 	}
 
 	res := make([]byte, 16)
-	_, _, err = conn.ReadFrom(res)
+	_, _, err = udpConn.ReadFrom(res)
 	if err != nil {
 		return err
 	}
 
-	t.udpCli = conn
+	t.udpCli = udpConn
 	connectionId := binary.BigEndian.Uint64(res[8:16])
 	t.State.ConnectionId = &connectionId
 	return

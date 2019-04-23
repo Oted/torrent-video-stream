@@ -1,6 +1,9 @@
 package peer
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+	"github.com/Oted/torrent-video-stream/lib/torrent"
+)
 
 type have struct {
 	index uint32
@@ -17,7 +20,7 @@ func (p *Peer) InboundHave(d []byte) (error, *have) {
 	}
 }
 
-func (p *Peer) OutboundHave(i int64) (error) {
+func (p *Peer) OutboundHave(piece *torrent.Piece) (error) {
 	var b [9]byte
 
 	var prefix [4]byte
@@ -27,7 +30,7 @@ func (p *Peer) OutboundHave(i int64) (error) {
 	b[4] = 4
 
 	var index [4]byte
-	binary.BigEndian.PutUint32(index[:], uint32(i))
+	binary.BigEndian.PutUint32(index[:], uint32(piece.Index))
 	copy(b[5:9], index[:])
 
 	err := p.Send(Message{
@@ -39,7 +42,7 @@ func (p *Peer) OutboundHave(i int64) (error) {
 		return err
 	}
 
-	//TODO maybe something with have
+	p.Have[uint32(piece.Index)] = piece
 
 	return nil
 }

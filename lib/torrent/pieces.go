@@ -13,6 +13,7 @@ type Piece struct {
 	Hash       hash.Hash
 	Sum        [20]byte
 	ByteOffset int64
+	Data       []byte
 }
 
 func (p *Piece) Validate(b []byte) bool {

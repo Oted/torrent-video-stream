@@ -1,6 +1,8 @@
 package peer
 
-import "errors"
+import (
+	"errors"
+)
 
 /*
 19 "handshake"
@@ -19,7 +21,7 @@ type Message struct {
 	Data []byte
 }
 
-func decideMessageType(b []byte) (error, string) {
+func (p *Peer) decideMessageType(b []byte) (error, string) {
 	if b[0] == 19 {
 		return nil, "handshake"
 	}
@@ -49,6 +51,10 @@ func decideMessageType(b []byte) (error, string) {
 		return nil, "cancel"
 	case 9:
 		return nil, "port"
+	}
+
+	if p.Out == 1 && p.In == 1 && p.Handshaked {
+		return nil, "headerless_bitfield"
 	}
 
 	return errors.New("invalid message from "), ""

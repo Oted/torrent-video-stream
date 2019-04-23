@@ -23,6 +23,7 @@ type Peer struct {
 	Handshaked     bool
 	Handshaken     bool
 	Has            map[uint32]*torrent.Piece
+	Have           map[uint32]*torrent.Piece
 	delete         func()
 	AmChoking      bool
 	AmInterested   bool
@@ -32,6 +33,7 @@ type Peer struct {
 	Messages       chan Message
 	Chunks         chan Chunk
 	CurrentJobs    int
+	chunkSize      int
 }
 
 type Chunk struct {
@@ -43,7 +45,7 @@ type Chunk struct {
 const DialTimeout = 7
 const KeepAliveInterval = 120
 
-func New(ip string, port uint16, t *torrent.Torrent, delete func()) (error, *Peer) {
+func New(ip string, port uint16, t *torrent.Torrent, chunkSize int, delete func()) (error, *Peer) {
 	address := fmt.Sprintf("%s:%d", ip, port)
 
 	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
@@ -77,9 +79,11 @@ func New(ip string, port uint16, t *torrent.Torrent, delete func()) (error, *Pee
 		PeerInterested: false,
 		Ticker:         ticker,
 		Has:            make(map[uint32]*torrent.Piece),
+		Have:           make(map[uint32]*torrent.Piece),
 		Messages:       make(chan Message),
 		Chunks:         make(chan Chunk),
 		CurrentJobs:    0,
+		chunkSize:      chunkSize,
 	}
 
 	go p.listen()
@@ -114,15 +118,14 @@ func (p *Peer) listen() {
 	}
 }
 
-
 func (p *Peer) Recive(b []byte) error {
 	if len(b) < 1 {
 		return errors.New("empty invalid message")
 	}
 
-	err, t := decideMessageType(b)
+	err, t := p.decideMessageType(b)
 	if err != nil {
-		return errors.New(fmt.Sprintf("unknown message type from %s of length %d",p.Address, len(b)))
+		return errors.New(fmt.Sprintf("unknown message type from %s of length %d", p.Address, len(b)))
 	}
 
 	logger.Log(fmt.Sprintf("recived message %s from %s ", t, p.Address))
@@ -165,7 +168,30 @@ func (p *Peer) Recive(b []byte) error {
 			p.delete()
 			return err
 		}
+	case "headerless_bitfield" :
+		err, _ := p.InboundHeadlessBitfield(b)
+		if err != nil {
+			p.delete()
+			return err
+		}
 	case "request":
+		err, req := p.InboundRequest(b)
+		if err != nil {
+			logger.Error(err)
+			return nil
+		}
+
+		ownedPiece := p.Have[req.index]
+
+		if ownedPiece != nil && ownedPiece.Data != nil {
+			for i := 0; i < len(ownedPiece.Data); i += p.chunkSize {
+				p.OutboundPiece(&piece{
+					index: req.index,
+					begin: req.begin,
+					block: p.Have[req.index].Data[i : i+p.chunkSize],
+				}, i == 0)
+			}
+		}
 	case "piece":
 		err, piece := p.InboundPiece(b)
 		if err != nil {

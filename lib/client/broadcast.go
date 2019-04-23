@@ -24,7 +24,7 @@ func (c *Client) Want(data []byte) (error, *BRes) {
 
 func (c *Client) Have(piece *torrent.Piece) (error, *BRes) {
 	for _, p := range c.Peers {
-		p.OutboundHave(piece.Index)
+		p.OutboundHave(piece)
 	}
 
 	return nil, nil

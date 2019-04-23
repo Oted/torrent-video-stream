@@ -7,10 +7,28 @@ import (
 
 //request: <len=0013><id=6><index><begin><length>
 
-type request struct {}
+type request struct {
+	pre    uint32
+	index  uint32
+	begin  uint32
+	length uint32
+}
 
 func (p *Peer) InboundRequest(d []byte) (error, *request) {
-	return nil, &request{}
+	//13 + 4
+	var b [17]byte
+
+	pre := binary.BigEndian.Uint32(d[0:4])
+	index := binary.BigEndian.Uint32(b[5:9])
+	begin := binary.BigEndian.Uint32(b[9:13])
+	length := binary.BigEndian.Uint32(b[13:17])
+
+	return nil, &request{
+		pre: pre,
+		index: index,
+		begin: begin,
+		length: length,
+	}
 }
 
 func (p *Peer) OutboundRequest(piece *torrent.Piece, o uint32, chunkSize uint32) (error) {
@@ -36,7 +54,7 @@ func (p *Peer) OutboundRequest(piece *torrent.Piece, o uint32, chunkSize uint32)
 	copy(b[13:17], length[:])
 
 	err := p.Send(Message{
-		T: "request",
+		T:    "request",
 		Data: b[:],
 	})
 
@@ -48,4 +66,3 @@ func (p *Peer) OutboundRequest(piece *torrent.Piece, o uint32, chunkSize uint32)
 
 	return nil
 }
-

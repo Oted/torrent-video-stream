@@ -26,9 +26,16 @@ func NewIo(io_port int, io_host string, peer_port int) (error, *input) {
 		Addr:         fmt.Sprintf("%s:%d", io_host, io_port),
 		WriteTimeout: time.Hour,
 		ReadTimeout:  time.Hour,
+		//ErrorLog: ,
+		//ConnState: func(conn net.Conn, state http.ConnState) {
+		//	fmt.Printf("CONNSTATE CHANGE %d\n", state)
+		//},
 	}
 
 	s.SetKeepAlivesEnabled(true)
+	//s.RegisterOnShutdown(func () {
+	//	fmt.Printf("closing connection....\n")
+	//})
 
 	i := input{
 		ioHost:   "0.0.0.0",
@@ -80,17 +87,34 @@ func (i *input) handler(w http.ResponseWriter, r *http.Request) {
 
 	//client.read and client.seek will be called until EOF
 	http.ServeContent(w, r, torrent.Meta.TargetFileName, time.Time{}, client)
-	/*	b := make([]byte, 10000000)
 
-		for {
-			_, err := client.Read(b)
+	/*
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		panic("expected http.ResponseWriter to be an http.Flusher")
+	}
 
-			if err != nil {
-				fmt.Println(err.Error())
-				return
-			}
+	w.Header().Set("Accept-Ranges","bytes")
+	w.Header().Set("Content-Type", torrent.SelectedFile().Mime)
+	w.Header().Set("Content-Length",fmt.Sprintf("%d", torrent.SelectedFile().Length))
+	w.Header().Set("Connection", "Keep-Alive")
+	w.Header().Set("Transfer-Encoding", "chunked")
+
+	b := make([]byte, 1024)
+	for {
+		_, err := client.Read(b)
+
+		if err != nil {
+			fmt.Println(err.Error())
+			return
 		}
-	*/
+
+		//w.Write(b)
+		binary.Write(w, binary.BigEndian, b)
+		flusher.Flush()
+	}
+	 */
+
 	//if there is an error then end
 	for err := range client.Errors {
 		w.Write([]byte("\n" + err.Error()))
