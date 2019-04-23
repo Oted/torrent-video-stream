@@ -19,9 +19,11 @@ func (c *Client) Seek(offset int64, whence int) (t int64, e error) {
 	}
 
 	if c.seek != t {
+
 		c.seek = t
-		//TODO here we must flush the jobs and restart with the pieces containing and after the offset!
 	}
+
+	c.seek = t
 
 	return
 }
@@ -31,7 +33,6 @@ func (c *Client) Read(p []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 
-	fmt.Printf("read called!\n")
 	for {
 		result := <-c.Results
 
@@ -51,14 +52,8 @@ func (c *Client) Read(p []byte) (n int, err error) {
 
 			n++
 			p[index] = b
-			//fmt.Printf("writing byte %d to pos %d\n", b, index + byteOffset)
 		}
 
-		//logger.Log(fmt.Sprintf("sending chunk %d of piece %d with length %d and start index %d",
-		//	result.chunkPositionInPiece,
-		//	result.piece.Index,
-		//	n,
-		//	byteOffset))
 		return
 	}
 }

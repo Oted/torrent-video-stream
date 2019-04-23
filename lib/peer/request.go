@@ -2,6 +2,7 @@ package peer
 
 import (
 	"encoding/binary"
+	"fmt"
 	"github.com/Oted/torrent-video-stream/lib/torrent"
 )
 
@@ -31,7 +32,7 @@ func (p *Peer) InboundRequest(d []byte) (error, *request) {
 	}
 }
 
-func (p *Peer) OutboundRequest(piece *torrent.Piece, o uint32, chunkSize uint32) (error) {
+func (p *Peer) OutboundRequest(piece *torrent.Piece, offset uint32, chunkSize uint32) (error) {
 	//13 + 4
 	var b [17]byte
 
@@ -46,13 +47,14 @@ func (p *Peer) OutboundRequest(piece *torrent.Piece, o uint32, chunkSize uint32)
 	copy(b[5:9], index[:])
 
 	var begin [4]byte
-	binary.BigEndian.PutUint32(begin[:], o)
+	binary.BigEndian.PutUint32(begin[:], offset)
 	copy(b[9:13], begin[:])
 
 	var length [4]byte
 	binary.BigEndian.PutUint32(length[:], chunkSize)
 	copy(b[13:17], length[:])
 
+	fmt.Printf("beg %d end %d\n", offset, offset+ chunkSize)
 	err := p.Send(Message{
 		T:    "request",
 		Data: b[:],

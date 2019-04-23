@@ -45,7 +45,6 @@ const workers = 1
 const chunkWaitTimeout = 10
 const peerCheckInterval = 3
 const ChunkSize = 1024
-const MaxCurrentJobs = 1
 
 func New(ip string, startPort int, t *torrent.Torrent) (error, *Client) {
 	err, listener, port := findAvailPort(startPort)
@@ -134,9 +133,6 @@ func (c *Client) startJobs(count int) {
 	close(c.Jobs)
 }
 
-//have to return full byte slice of piece
-//which should match the torrent.info.piece.length
-//except in the case of the last piece
 func (c *Client) getPiece(p *torrent.Piece) (error, []byte) {
 	res := make([]byte, c.torrent.Info.PieceLength)
 	offset := int64(0)
@@ -155,7 +151,6 @@ func (c *Client) getPiece(p *torrent.Piece) (error, []byte) {
 		}
 
 		if offset >= c.torrent.Info.PieceLength {
-			//here done
 			break
 		}
 
@@ -265,6 +260,10 @@ func (c *Client) GotChunk(res result) {
 		(res.piece.Index-c.torrent.Meta.SelectedPieces[0].Index)*(c.torrent.Info.PieceLength/ChunkSize) +
 			+ res.chunkPositionInPiece
 
+	if c.latestChunk > fileChunk {
+		return
+	}
+
 	if res.chunkPositionInPiece > c.firstChunk && c.latestChunk < fileChunk {
 		fmt.Printf("queueing chunk %d with current pointer %d\n", res.chunkPositionInPiece, c.latestChunk)
 		runtime.Gosched()
@@ -339,7 +338,7 @@ func (c *Client) DeletePeer(id string) {
 	delete(c.Peers, id)
 	c.mapLock.Unlock()
 	if len(c.Peers) == 0 {
-		logger.Log("no moer peers")
+		logger.Log("no more peers")
 	}
 }
 

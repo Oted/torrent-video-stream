@@ -1,6 +1,7 @@
 package input
 
 import (
+	"errors"
 	"github.com/Oted/torrent-video-stream/lib/torrent"
 	"github.com/zeebo/bencode"
 	"io/ioutil"
@@ -36,5 +37,5 @@ func torrentFromPath(path string) (error, *torrent.Torrent) {
 // &tr=udp%3A%2F%2Ftracker.coppersurfer.tk%3A6969&tr=udp%3A%2F%2Fexodus.desync.com%3A6969
 
 func (i *input) torrentFromMagnet(url string) (error, *torrent.Torrent) {
-	return nil, nil
+	return errors.New("unsupported"), nil
 }
